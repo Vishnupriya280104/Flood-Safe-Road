@@ -35,7 +35,8 @@
           radius: 10,
           color: colors[feature.properties.severity],
           fillColor: colors[feature.properties.severity],
-          fillOpacity: 0.6
+          fillOpacity: 0.6,
+          bubblingMouseEvents: false
         }),
         // Add a popup with the details when someone clicks a marker
         onEachFeature: (feature, layer) => {
@@ -47,6 +48,76 @@
         }
       }).addTo(map);
     });
+    // 5. Variables that remember what the user has chosen so far
+    let startPoint = null;
+    let endPoint = null;
+    let startMarker = null;
+    let endMarker = null;
+    let routeLayer = null;
+
+// 6. Every click on the map chooses a start point, then an end point
+    map.on('click', function (e) {
+  // If a route is already drawn, a new click starts over
+  if (startPoint && endPoint) {
+    resetRoute();
+  }
+
+  if (!startPoint) {
+    startPoint = e.latlng;
+    startMarker = L.marker(e.latlng).addTo(map).bindPopup("Start").openPopup();
+  } else {
+    endPoint = e.latlng;
+    endMarker = L.marker(e.latlng).addTo(map).bindPopup("End").openPopup();
+    getRoute();
+  }
+});
+
+// 7. Remove the old markers and route
+    function resetRoute() {
+      if (startMarker) map.removeLayer(startMarker);
+      if (endMarker) map.removeLayer(endMarker);
+      if (routeLayer) map.removeLayer(routeLayer);
+      startPoint = null;
+      endPoint = null;
+      startMarker = null;
+      endMarker = null;
+      routeLayer = null;
+    }
+
+// 8. Ask OSRM for a route and draw it
+    function getRoute() {
+  // OSRM wants longitude FIRST, then latitude (same order trap as GeoJSON)
+      const url = 'https://router.project-osrm.org/route/v1/driving/' +
+        startPoint.lng + ',' + startPoint.lat + ';' +
+        endPoint.lng + ',' + endPoint.lat +
+        '?overview=full&geometries=geojson';
+
+      fetch(url)
+        .then(response => response.json())
+        .then(data => {
+          if (data.code !== 'Ok') {
+            alert('No route found. Try points closer to a road.');
+            return;
+          }
+
+          const route = data.routes[0];
+
+      // Draw the route as a blue line
+          routeLayer = L.geoJSON(route.geometry, {
+            style: { color: 'blue', weight: 5 }
+          }).addTo(map);
+          map.fitBounds(routeLayer.getBounds());
+
+      // Show distance and time in the End popup
+          const km = (route.distance / 1000).toFixed(1);
+          const mins = Math.round(route.duration / 60);
+          endMarker.setPopupContent("End<br>" + km + " km, about " + mins + " min").openPopup();
+        })
+        .catch(error => {
+          console.error(error);
+          alert('Could not reach the routing service.');
+        });
+      }
     
   </script>
 </body>
