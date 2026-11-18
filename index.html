@@ -24,13 +24,16 @@
 
     // 3. Colors for each severity level
     const colors = { severe: 'red', waterlogged: 'orange' };
-
+    let floodFeatures = []; 
     // 4. Load the flood data file, then draw it on the map
     fetch('data/flood-2023.geojson')
     .then(response => response.json())
     .then(data => {
+      floodFeatures = data.features;
+      console.log('flood spots loaded:', floodFeatures.length);
       L.geoJSON(data, {
         // Draw each point as a fixed-size circle marker, colored by severity
+        
         pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
           radius: 10,
           color: colors[feature.properties.severity],
@@ -49,44 +52,56 @@
       }).addTo(map);
     });
     // 5. Variables that remember what the user has chosen so far
+    // 5. Settings. These radii are ASSUMPTIONS (metres), not measured flood sizes
+    const FLOOD_RADIUS = { severe: 700, waterlogged: 400 };
+
     let startPoint = null;
     let endPoint = null;
     let startMarker = null;
     let endMarker = null;
-    let routeLayer = null;
+    let normalLayer = null;
+    let safeLayer = null;
 
-// 6. Every click on the map chooses a start point, then an end point
+// 6. Every click chooses a start point, then an end point
     map.on('click', function (e) {
-  // If a route is already drawn, a new click starts over
-  if (startPoint && endPoint) {
-    resetRoute();
-  }
+      if (startPoint && endPoint) {
+        resetRoute();
+      }
+      if (!startPoint) {
+        startPoint = e.latlng;
+        startMarker = L.marker(e.latlng).addTo(map).bindPopup("Start").openPopup();
+      } else {
+        endPoint = e.latlng;
+        endMarker = L.marker(e.latlng).addTo(map).bindPopup("End").openPopup();
+        getRoute();
+      }
+    });
 
-  if (!startPoint) {
-    startPoint = e.latlng;
-    startMarker = L.marker(e.latlng).addTo(map).bindPopup("Start").openPopup();
-  } else {
-    endPoint = e.latlng;
-    endMarker = L.marker(e.latlng).addTo(map).bindPopup("End").openPopup();
-    getRoute();
-  }
-});
-
-// 7. Remove the old markers and route
     function resetRoute() {
-      if (startMarker) map.removeLayer(startMarker);
-      if (endMarker) map.removeLayer(endMarker);
-      if (routeLayer) map.removeLayer(routeLayer);
-      startPoint = null;
-      endPoint = null;
-      startMarker = null;
-      endMarker = null;
-      routeLayer = null;
+      [startMarker, endMarker, normalLayer, safeLayer].forEach(layer => {
+        if (layer) map.removeLayer(layer);
+      });
+      startPoint = endPoint = null;
+      startMarker = endMarker = normalLayer = safeLayer = null;
     }
 
-// 8. Ask OSRM for a route and draw it
+// 7. Show a message in the End popup
+    function showInfo(html) {
+      endMarker.setPopupContent(html).openPopup();
+    }
+
+// 8. Which flood spots does a path pass through? (returns a list of features)
+    function findFloodsOnPath(path) {
+      return floodFeatures.filter(f => {
+        const spot = L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]);
+        const radius = FLOOD_RADIUS[f.properties.severity];
+        return path.some(point => map.distance(L.latLng(point), spot) < radius);
+      });
+    }
+
+// 9. Step A: get the normal route from OSRM
     function getRoute() {
-  // OSRM wants longitude FIRST, then latitude (same order trap as GeoJSON)
+      console.log('getRoute called', startPoint, endPoint);
       const url = 'https://router.project-osrm.org/route/v1/driving/' +
         startPoint.lng + ',' + startPoint.lat + ';' +
         endPoint.lng + ',' + endPoint.lat +
@@ -95,29 +110,151 @@
       fetch(url)
         .then(response => response.json())
         .then(data => {
+          
+          console.log('OSRM answered:', data.code); 
           if (data.code !== 'Ok') {
             alert('No route found. Try points closer to a road.');
             return;
           }
-
           const route = data.routes[0];
-
-      // Draw the route as a blue line
-          routeLayer = L.geoJSON(route.geometry, {
-            style: { color: 'blue', weight: 5 }
-          }).addTo(map);
-          map.fitBounds(routeLayer.getBounds());
-
-      // Show distance and time in the End popup
+      // OSRM gives [lng, lat]; Leaflet lines want [lat, lng]
+          const normalPath = route.geometry.coordinates.map(c => [c[1], c[0]]);
           const km = (route.distance / 1000).toFixed(1);
           const mins = Math.round(route.duration / 60);
-          endMarker.setPopupContent("End<br>" + km + " km, about " + mins + " min").openPopup();
+          const hit = findFloodsOnPath(normalPath);
+
+          if (hit.length === 0) {
+            normalLayer = L.polyline(normalPath, { color: 'green', weight: 5 }).addTo(map);
+            map.fitBounds(normalLayer.getBounds());
+            showInfo("✅ This route passes no known flooded area.<br>" + km + " km, about " + mins + " min");
+            return;
+          }
+
+      // The normal route touches flooded areas: show it dashed grey, then look for a safer one
+          normalLayer = L.polyline(normalPath, { color: 'gray', weight: 4, dashArray: '8 8' }).addTo(map);
+          map.fitBounds(normalLayer.getBounds());
+          getSaferRoute(hit, km, mins, hit.map(f => f.properties.name).join(", "), 1);
         })
         .catch(error => {
           console.error(error);
           alert('Could not reach the routing service.');
         });
       }
+
+// 10. Step B: ask Valhalla for a route that avoids the flooded spots
+function getSaferRoute(hit, normalKm, normalMins, normalNames, attempt) {
+  const polygons = [];
+  const unavoidable = [];
+
+  hit.forEach(f => {
+    const center = L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]);
+    const radius = FLOOD_RADIUS[f.properties.severity];
+    // If the start or end is inside a flooded zone, we cannot avoid that zone
+    if (map.distance(center, startPoint) < radius || map.distance(center, endPoint) < radius) {
+      unavoidable.push(f.properties.name);
+    } else {
+      polygons.push(makeCircle(center, radius));
+    }
+  });
+
+  const unavoidableText = unavoidable.length
+    ? "<br>Your start or end is inside: " + unavoidable.join(", ") + " (cannot be avoided)."
+    : "";
+
+  if (polygons.length === 0) {
+    showInfo("⚠️ The route passes: " + normalNames + "." + unavoidableText +
+      "<br>" + normalKm + " km, about " + normalMins + " min (normal conditions).");
+    return;
+  }
+
+  const request = {
+    locations: [
+      { lat: startPoint.lat, lon: startPoint.lng },
+      { lat: endPoint.lat, lon: endPoint.lng }
+    ],
+    costing: 'auto',
+    exclude_polygons: polygons,
+    directions_options: { units: 'kilometers' }
+  };
+  const url = 'https://valhalla1.openstreetmap.de/route?json=' +
+    encodeURIComponent(JSON.stringify(request));
+
+  fetch(url)
+    .then(response => {
+      if (!response.ok) throw new Error('Valhalla error ' + response.status);
+      return response.json();
+    })
+    .then(data => {
+      const path = decodePolyline(data.trip.legs[0].shape);
+
+      // Does the detour pass near OTHER flooded areas we did not tell Valhalla about?
+      const newHits = findFloodsOnPath(path).filter(f =>
+        !hit.includes(f) && !unavoidable.includes(f.properties.name));
+      if (newHits.length > 0 && attempt < 3) {
+        // Add them to the avoid list and ask again
+        getSaferRoute(hit.concat(newHits), normalKm, normalMins, normalNames, attempt + 1);
+        return;
+      }
+
+      safeLayer = L.polyline(path, { color: 'green', weight: 5 }).addTo(map);
+      map.fitBounds(safeLayer.getBounds());
+
+      const safeKm = data.trip.summary.length.toFixed(1);
+      const safeMins = Math.round(data.trip.summary.time / 60);
+      const stillHit = findFloodsOnPath(path)
+        .map(f => f.properties.name)
+        .filter(n => !unavoidable.includes(n));
+      const stillText = stillHit.length
+        ? "<br>⚠️ Still close to: " + stillHit.join(", ") : "";
+
+      showInfo("⚠️ Normal route (grey) passes: " + normalNames + "." + unavoidableText +
+        "<br>✅ Safer route (green): " + safeKm + " km (normal: " + normalKm + " km)" +
+        "<br>Times differ between routing engines, so compare distances." + stillText);
+    })
+    .catch(error => {
+      console.error(error);
+      showInfo("⚠️ The route passes: " + normalNames + "." + unavoidableText +
+        "<br>Could not find a safer route (service busy, or no alternative).");
+    });
+}
+
+// 11. Build an 8-sided shape around a flood spot. Valhalla wants [lng, lat] points
+    function makeCircle(center, radius) {
+      const points = [];
+      const sides = 8;
+      for (let i = 0; i < sides; i++) {
+        const angle = (2 * Math.PI * i) / sides;
+        const dLat = (radius * Math.cos(angle)) / 111320;
+        const dLng = (radius * Math.sin(angle)) / (111320 * Math.cos(center.lat * Math.PI / 180));
+        points.push([center.lng + dLng, center.lat + dLat]);
+      }
+      points.push(points[0]);   // close the shape
+      return points;
+    }
+
+// 12. Valhalla sends its route as a compressed text string; this turns it back into points
+    function decodePolyline(encoded) {
+      let index = 0, lat = 0, lng = 0;
+      const coords = [];
+      while (index < encoded.length) {
+        let result = 0, shift = 0, b;
+        do {
+          b = encoded.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20);
+        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+        result = 0; shift = 0;
+        do {
+          b = encoded.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20);
+        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+        coords.push([lat / 1e6, lng / 1e6]);
+      }
+      return coords;
+    }
     
   </script>
 </body>
