@@ -48,6 +48,30 @@
       "properties": { "name": "Arumbakkam", "severity": "waterlogged",
         "note": "Waterlogging seen on roads", "source": "ANI via DailyO, 4 Dec 2023" },
       "geometry": { "type": "Point", "coordinates": [80.2077, 13.0740 ] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Madipakkam", "severity": "severe",
+        "note": "Residents marooned; terraces were the only dry refuge", "source": "DT Next, 6 Dec 2023" },
+      "geometry": { "type": "Point", "coordinates": [80.1986, 12.9598] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Sholinganallur", "severity": "severe",
+        "note": "Listed among marooned areas", "source": "DT Next, 6 Dec 2023" },
+      "geometry": { "type": "Point", "coordinates": [80.2299, 12.8981] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Perungudi", "severity": "severe",
+        "note": "Heavily waterlogged; residents unable to leave the neighbourhood", "source": "Citizen Matters, Dec 2023" },
+      "geometry": { "type": "Point", "coordinates": [80.2413, 12.9705] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Thiruvanmiyur", "severity": "waterlogged",
+        "note": "Waist-deep water reported around Kamaraj Nagar", "source": "Adyar Times, 9 Dec 2023" },
+      "geometry": { "type": "Point", "coordinates": [80.2641, 12.9853] }
     }
   ]
 }

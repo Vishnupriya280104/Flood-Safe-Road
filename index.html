@@ -3,12 +3,16 @@
 <head>
   <link rel="icon" href="data:,">
   <title>Flood Safe Roads - Chennai</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <!-- Leaflet: the free library that draws the map -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     body { margin: 0; }
     #map { height: 100vh; }  /* make the map fill the whole screen */
+    .legend { background: white; padding: 8px 10px; border-radius: 6px;
+          font: 13px/1.6 sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,.3); max-width: 250px; }
   </style>
 </head>
 <body>
@@ -51,6 +55,17 @@
           );
         }
       }).addTo(map);
+            // Faint dashed circles showing the area the app tries to avoid around each spot
+      data.features.forEach(f => {
+        L.circle([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
+          radius: FLOOD_RADIUS[f.properties.severity],
+          color: colors[f.properties.severity],
+          weight: 1,
+          dashArray: '4',
+          fillOpacity: 0.08,
+          interactive: false
+        }).addTo(map);
+      });
     });
     // 5. Variables that remember what the user has chosen so far
     // 5. Settings. These radii are ASSUMPTIONS (metres), not measured flood sizes
@@ -73,6 +88,7 @@
 
 // 6. Every click chooses a start point, then an end point
     map.on('click', function (e) {
+      console.log('clicked:', e.latlng.lat.toFixed(4), e.latlng.lng.toFixed(4));
       if (startPoint && endPoint) {
         resetRoute();
       }
@@ -184,7 +200,7 @@ function getSaferRoute(hit, normalKm, normalMins, normalNames, attempt) {
     (skipped.length ? "<br>Not avoided (too many zones for the free service): " + skipped.join(", ") + "." : "");
 
   if (polygons.length === 0) {
-    showInfo("⚠️ The route passes: " + normalNames + "." + extraText +
+    showInfo("The route passes: " + normalNames + "." + extraText +
       "<br>" + normalKm + " km (normal conditions).");
     return;
   }
@@ -232,15 +248,15 @@ function getSaferRoute(hit, normalKm, normalMins, normalNames, attempt) {
         .map(f => f.properties.name)
         .filter(n => !unavoidable.includes(n));
       const stillText = stillHit.length
-        ? "<br>⚠️ Still close to: " + stillHit.join(", ") : "";
+        ? "<br>Still close to: " + stillHit.join(", ") : "";
 
-      showInfo("⚠️ Normal route (grey) passes: " + normalNames + "." + extraText +
-        "<br>✅ Safer route (green): " + safeKm + " km (normal: " + normalKm + " km)" +
+      showInfo(" Normal route (grey) passes: " + normalNames + "." + extraText +
+        "<br>Safer route (green): " + safeKm + " km (normal: " + normalKm + " km)" +
         "<br>Times differ between routing engines, so compare distances." + stillText);
     })
     .catch(error => {
       console.error(error);
-      showInfo("⚠️ The route passes: " + normalNames + "." + extraText +
+      showInfo(" The route passes: " + normalNames + "." + extraText +
         "<br>Could not get a safer route from the free service (see Console for the reason).");
     });
 }
@@ -282,6 +298,21 @@ function getSaferRoute(hit, normalKm, normalMins, normalNames, attempt) {
       }
       return coords;
     }
+    // 13. A legend that explains the map
+    const legend = L.control({ position: 'bottomleft' });
+    legend.onAdd = function () {
+      const div = L.DomUtil.create('div', 'legend');
+      div.innerHTML =
+        "<b>How to use</b><br>Click the map to set Start, click again to set End, click a third time to reset.<br><br>" +
+        "<span style='color:red'>●</span> Severe (rescues reported)<br>" +
+        "<span style='color:orange'>●</span> Waterlogged<br>" +
+        "<span style='color:gray'>╌╌</span> Normal route<br>" +
+        "<span style='color:green'>━━</span> Safer route<br>" +
+        "<small>Dashed circles are assumed avoidance zones, not measured flood extents. " +
+        "Data is from Dec 2023 reports, not live.</small>";
+      return div;
+    };
+    legend.addTo(map);
     
   </script>
 </body>
