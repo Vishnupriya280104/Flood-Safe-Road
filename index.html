@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <link rel="icon" href="data:,">
   <title>Flood Safe Roads - Chennai</title>
   <!-- Leaflet: the free library that draws the map -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -53,7 +54,15 @@
     });
     // 5. Variables that remember what the user has chosen so far
     // 5. Settings. These radii are ASSUMPTIONS (metres), not measured flood sizes
-    const FLOOD_RADIUS = { severe: 700, waterlogged: 400 };
+    // Assumptions (metres), not measured flood sizes
+    const FLOOD_RADIUS = { severe: 500, waterlogged: 300 };
+// The free Valhalla server limits the total size of "avoid" shapes. This is my best guess of a safe budget
+    const MAX_EXCLUDE_PERIMETER = 9000;
+
+// Distance around an 8-sided shape of a given radius (used to stay within the budget)
+    function perimeterOf(radius) {
+      return 8 * 2 * radius * Math.sin(Math.PI / 8);
+}
 
     let startPoint = null;
     let endPoint = null;
@@ -126,7 +135,7 @@
           if (hit.length === 0) {
             normalLayer = L.polyline(normalPath, { color: 'green', weight: 5 }).addTo(map);
             map.fitBounds(normalLayer.getBounds());
-            showInfo("✅ This route passes no known flooded area.<br>" + km + " km, about " + mins + " min");
+            showInfo("This route passes no known flooded area.<br>" + km + " km, about " + mins + " min");
             return;
           }
 
@@ -142,28 +151,41 @@
       }
 
 // 10. Step B: ask Valhalla for a route that avoids the flooded spots
+// 10. Step B: ask Valhalla for a route that avoids the flooded spots
 function getSaferRoute(hit, normalKm, normalMins, normalNames, attempt) {
   const polygons = [];
-  const unavoidable = [];
+  const unavoidable = [];   // the start or end is inside this zone
+  const skipped = [];       // no room left in the free service's size budget
+  let used = 0;             // total size of the avoid-shapes so far (metres)
 
-  hit.forEach(f => {
+  // Most serious zones first, so they get priority if we run out of room
+  const sorted = hit.slice().sort((a, b) =>
+    (a.properties.severity === 'severe' ? 0 : 1) -
+    (b.properties.severity === 'severe' ? 0 : 1));
+
+  sorted.forEach(f => {
     const center = L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]);
     const radius = FLOOD_RADIUS[f.properties.severity];
-    // If the start or end is inside a flooded zone, we cannot avoid that zone
     if (map.distance(center, startPoint) < radius || map.distance(center, endPoint) < radius) {
       unavoidable.push(f.properties.name);
-    } else {
-      polygons.push(makeCircle(center, radius));
+      return;
     }
+    const size = perimeterOf(radius);
+    if (used + size > MAX_EXCLUDE_PERIMETER) {
+      skipped.push(f.properties.name);
+      return;
+    }
+    used += size;
+    polygons.push(makeCircle(center, radius));
   });
 
-  const unavoidableText = unavoidable.length
-    ? "<br>Your start or end is inside: " + unavoidable.join(", ") + " (cannot be avoided)."
-    : "";
+  const extraText =
+    (unavoidable.length ? "<br>Your start or end is inside: " + unavoidable.join(", ") + " (cannot be avoided)." : "") +
+    (skipped.length ? "<br>Not avoided (too many zones for the free service): " + skipped.join(", ") + "." : "");
 
   if (polygons.length === 0) {
-    showInfo("⚠️ The route passes: " + normalNames + "." + unavoidableText +
-      "<br>" + normalKm + " km, about " + normalMins + " min (normal conditions).");
+    showInfo("⚠️ The route passes: " + normalNames + "." + extraText +
+      "<br>" + normalKm + " km (normal conditions).");
     return;
   }
 
@@ -181,7 +203,12 @@ function getSaferRoute(hit, normalKm, normalMins, normalNames, attempt) {
 
   fetch(url)
     .then(response => {
-      if (!response.ok) throw new Error('Valhalla error ' + response.status);
+      if (!response.ok) {
+        // Read the server's own explanation so we can see the real reason
+        return response.text().then(text => {
+          throw new Error('Valhalla error ' + response.status + ': ' + text);
+        });
+      }
       return response.json();
     })
     .then(data => {
@@ -190,8 +217,9 @@ function getSaferRoute(hit, normalKm, normalMins, normalNames, attempt) {
       // Does the detour pass near OTHER flooded areas we did not tell Valhalla about?
       const newHits = findFloodsOnPath(path).filter(f =>
         !hit.includes(f) && !unavoidable.includes(f.properties.name));
-      if (newHits.length > 0 && attempt < 3) {
-        // Add them to the avoid list and ask again
+      const roomLeft = newHits.some(f =>
+        used + perimeterOf(FLOOD_RADIUS[f.properties.severity]) <= MAX_EXCLUDE_PERIMETER);
+      if (newHits.length > 0 && roomLeft && attempt < 3) {
         getSaferRoute(hit.concat(newHits), normalKm, normalMins, normalNames, attempt + 1);
         return;
       }
@@ -200,21 +228,20 @@ function getSaferRoute(hit, normalKm, normalMins, normalNames, attempt) {
       map.fitBounds(safeLayer.getBounds());
 
       const safeKm = data.trip.summary.length.toFixed(1);
-      const safeMins = Math.round(data.trip.summary.time / 60);
       const stillHit = findFloodsOnPath(path)
         .map(f => f.properties.name)
         .filter(n => !unavoidable.includes(n));
       const stillText = stillHit.length
         ? "<br>⚠️ Still close to: " + stillHit.join(", ") : "";
 
-      showInfo("⚠️ Normal route (grey) passes: " + normalNames + "." + unavoidableText +
+      showInfo("⚠️ Normal route (grey) passes: " + normalNames + "." + extraText +
         "<br>✅ Safer route (green): " + safeKm + " km (normal: " + normalKm + " km)" +
         "<br>Times differ between routing engines, so compare distances." + stillText);
     })
     .catch(error => {
       console.error(error);
-      showInfo("⚠️ The route passes: " + normalNames + "." + unavoidableText +
-        "<br>Could not find a safer route (service busy, or no alternative).");
+      showInfo("⚠️ The route passes: " + normalNames + "." + extraText +
+        "<br>Could not get a safer route from the free service (see Console for the reason).");
     });
 }
 
