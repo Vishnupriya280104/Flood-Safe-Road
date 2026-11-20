@@ -6,8 +6,10 @@
     <link rel="icon" href="data:,">
     <title>Flood-Safe-Road | Real-Time Chennai Hydrological Routing</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
     <style>
         .suggestion-item:hover {
             background: #e0f2fe;
@@ -235,6 +237,68 @@
 
         let floodFeatures = JSON.parse(JSON.stringify(BASE_HOTSPOTS));
         let isLiveMode = true;
+        // 1. Initialize Supabase Client
+        const SUPABASE_URL = 'https://evzzbqvgfpziwvcdsgzf.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_yrQ2TBaXOzCeniFTo_krnw_lCZLs5Q4';
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // 2. Load active community reports from Supabase (auto-expires anything older than 6 hours)
+        async function loadCommunityReports() {
+            try {
+                const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+                const { data, error } = await sb
+                    .from('reports')
+                    .select('*')
+                    .gte('created_at', sixHoursAgo);
+
+                if (error) throw error;
+
+                // Remove old community pins before merging fresh ones from DB
+                floodFeatures = floodFeatures.filter(f => f.properties.source !== 'Community Report');
+
+                (data || new Array()).forEach(row => {
+                    // TRUST RULE: Red ('severe') ONLY if depth >= 50cm AND confirmations >= 2
+                    const isVerifiedSevere = row.depth_cm >= 50 && row.confirmations >= 2;
+                    const severity = isVerifiedSevere ? 'severe' : 'waterlogged';
+
+                    const feat = F(
+                        `Community Report: ${row.category} (${row.confirmations} confirm${row.confirmations > 1 ? 's' : ''})`,
+                        severity,
+                        row.depth_cm,
+                        row.elev_text || 'Reported by community member',
+                        'Community Report',
+                        row.lng,
+                        row.lat
+                    );
+                    feat.properties.dbId = row.id;
+                    feat.properties.confirmations = row.confirmations;
+                    floodFeatures.push(feat);
+                });
+
+                renderFloodZones();
+                if (startPoint && endPoint) computeRoute();
+            } catch (err) {
+                console.warn('Supabase load skipped/offline:', err.message);
+            }
+        }
+
+        // 3. Increment confirmation count in Supabase when a user clicks "Confirm"
+        window.confirmFloodReport = async function (dbId, currentCount) {
+            try {
+                const newCount = (currentCount || 1) + 1;
+                const { error } = await sb
+                    .from('reports')
+                    .update({ confirmations: newCount })
+                    .eq('id', dbId);
+
+                if (error) throw error;
+                map.closePopup();
+                await loadCommunityReports();
+            } catch (err) {
+                alert('Could not confirm report: ' + err.message);
+            }
+        };
+
 
         const colors = { severe: '#dc2626', waterlogged: '#f59e0b', clear: '#10b981' };
         const FLOOD_RADIUS = { severe: 550, waterlogged: 350, clear: 200 };
@@ -258,17 +322,34 @@
                 const p = f.properties;
                 const latlng = [f.geometry.coordinates[1], f.geometry.coordinates[0]];
                 const color = colors[p.severity];
-                const sensor = p.source === 'User Report' ? 'Community report (unverified)'
+                const sensor = p.source === 'Community Report' ? 'Community Report'
                     : isLiveMode ? `Open-Meteo rainfall (${p.rain_mm.toFixed(1)} mm / 3h)`
                         : 'News report, Dec 2023';
+
+                const isCommunity = p.source === 'Community Report';
+                const trustBadge = isCommunity
+                    ? (p.confirmations >= 2
+                        ? `<div style="color:#dc2626;font-weight:700;margin-top:4px;">✅ Verified Hazard (${p.confirmations} confirmations)</div>`
+                        : `<div style="color:#d97706;font-weight:700;margin-top:4px;">⏳ Unverified (${p.confirmations}/2 confirmations — stays amber until 2nd user confirms)</div>`)
+                    : '';
+
+                const confirmBtnHtml = (isCommunity && p.dbId)
+                    ? `<button class="action-btn" style="margin-top:6px;background:#0284c7;" onclick="confirmFloodReport(${p.dbId}, ${p.confirmations})">👍 Confirm This Flood (${p.confirmations})</button>`
+                    : '';
+
                 L.circleMarker(latlng, {
-                    radius: 8, color: color, fillColor: color, fillOpacity: 0.75
+                    radius: 8,
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.75
                 }).bindPopup(
                     `<b>${p.name}</b><br>` +
                     `<b>Water Depth:</b> ${p.depth_cm} cm (${p.severity.toUpperCase()})<br>` +
                     `${p.note}<br>` +
-                    `<span class="badge">${sensor}</span><br>` +
-                    `<small>${p.source}</small>`
+                    `<span class="badge">${sensor}</span>` +
+                    trustBadge +
+                    confirmBtnHtml +
+                    `<br><small>${p.source}</small>`
                 ).addTo(floodLayerGroup);
 
                 if (p.severity !== 'clear') {
@@ -279,6 +360,7 @@
                 }
             });
         }
+
 
         async function syncLiveWeather() {
             const statusEl = document.getElementById('weatherStatus');
@@ -402,27 +484,24 @@
             L.popup().setLatLng(e.latlng).setContent(pickerHtml).openOn(map);
         });
 
-        window.submitCommunityReport = function (lat, lng, category, depthCm, elevText) {
+        window.submitCommunityReport = async function (lat, lng, category, depthCm, elevText) {
             map.closePopup();
-            const severity = depthCm >= 50 ? 'severe' : 'waterlogged';
-            const expiresAt = Date.now() + (6 * 60 * 60 * 1000); // Auto-expires in 6 hours
-
-            const report = F(
-                `Community Report: ${category} Deep`,
-                severity,
-                depthCm,
-                `${elevText} • Expires in 6h`,
-                'User Report',
-                lng,
-                lat
-            );
-            report.properties.confirmations = 1;
-            report.properties.expiresAt = expiresAt;
-
-            floodFeatures.push(report);
-            renderFloodZones();
-            if (startPoint && endPoint) computeRoute();
+            try {
+                const { error } = await sb.from('reports').insert(Array.of({
+                    lat: lat,
+                    lng: lng,
+                    category: category,
+                    depth_cm: depthCm,
+                    elev_text: elevText,
+                    confirmations: 1
+                }));
+                if (error) throw error;
+                await loadCommunityReports();
+            } catch (err) {
+                alert('Failed to save report to Supabase: ' + err.message);
+            }
         };
+
 
         // Auto-expire old community reports every minute so receding water never blocks roads
         setInterval(() => {
