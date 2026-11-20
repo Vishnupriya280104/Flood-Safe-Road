@@ -1,14 +1,8 @@
 
-<div align="center">
-
-# 🌊 Safe Roads in Floods (`Flood-Safe-Road`)
+#  Safe Roads in Floods (`Flood-Safe-Road`)
 ### Community-Powered, Real-Time Hydrological & Vehicle-Aware Safe Routing
 
-[![Live Demo](https://shields.io)](https://github.io)
-[![Open Source](https://shields.io)](https://github.com)
-[![License: MIT](https://shields.io)](LICENSE)
-[![TYSIC](https://shields.io)](#)
-
+**[ Live Demo](https://github.io)** • **[ Source Code](https://github.com)** • ** 100% Open-Source & Free APIs** • ** TYSIC Disaster Resilience**
 
 *Helping residents, two-wheeler riders, delivery workers, and emergency responders navigate flooded cities safely—without paid APIs or proprietary infrastructure.*
 
