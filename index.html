@@ -472,7 +472,7 @@
             let elevText = 'Checking elevation...';
             try {
                 const elevUrl = new URL('https://open-meteo.com');
-                elevUrl.hostname = '://open-meteo.com';
+                elevUrl.hostname = 'api.open-meteo.com';
                 elevUrl.pathname = '/v1/elevation';
                 elevUrl.searchParams.set('latitude', String(lat));
                 elevUrl.searchParams.set('longitude', String(lng));
