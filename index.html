@@ -253,11 +253,12 @@
         // 2. Load active community reports from Supabase (auto-expires anything older than 6 hours)
         async function loadCommunityReports() {
             try {
-                const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+                const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
                 const { data, error } = await sb
                     .from('reports')
                     .select('*')
-                    .gte('created_at', sixHoursAgo);
+                    .gte('created_at', twelveHoursAgo);
+
 
                 if (error) throw error;
 
@@ -331,7 +332,7 @@
                 const latlng = [f.geometry.coordinates[1], f.geometry.coordinates[0]];
                 const color = colors[p.severity];
                 const sensor = p.source === 'Community Report' ? 'Community Report'
-                    : isLiveMode ? `Open-Meteo rainfall (${p.rain_mm.toFixed(1)} mm / 3h)`
+                    : isLiveMode ? `Open-Meteo rainfall (${p.rain_mm.toFixed(1)} mm / 12h)`
                         : 'News report, Dec 2023';
 
                 const isCommunity = p.source === 'Community Report';
@@ -374,56 +375,63 @@
 
 
         async function syncLiveWeather() {
+            isLiveMode = true;
             const statusEl = document.getElementById('weatherStatus');
-            if (statusEl) statusEl.innerHTML = '⏳ Fetching live Chennai rainfall...';
+            if (statusEl) statusEl.innerHTML = '⏳ Fetching 12h live Chennai rainfall...';
 
             try {
                 const lats = BASE_HOTSPOTS.map(f => f.geometry.coordinates.at(1)).join(',');
                 const lngs = BASE_HOTSPOTS.map(f => f.geometry.coordinates.at(0)).join(',');
+
                 const apiUrl = new URL('https://open-meteo.com');
-                apiUrl.hostname = 'api.open-meteo.com';
+                apiUrl.hostname = '://open-meteo.com';
                 apiUrl.pathname = '/v1/forecast';
                 apiUrl.searchParams.set('latitude', lats);
                 apiUrl.searchParams.set('longitude', lngs);
                 apiUrl.searchParams.set('hourly', 'precipitation');
-                apiUrl.searchParams.set('past_hours', '3');
+                apiUrl.searchParams.set('past_hours', '12');
                 apiUrl.searchParams.set('forecast_hours', '1');
 
-
                 const res = await fetch(apiUrl.toString());
-
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
 
-                const userPins = floodFeatures.filter(f => f.properties.source === 'User Report');
+                const communityPins = floodFeatures.filter(f => f.properties.source === 'Community Report');
 
                 const updated = BASE_HOTSPOTS.map((spot, idx) => {
                     const clone = JSON.parse(JSON.stringify(spot));
                     const locWeather = Array.isArray(data) ? data.at(idx) : data;
                     const hourlyRain = (locWeather && locWeather.hourly && locWeather.hourly.precipitation)
-                        ? locWeather.hourly.precipitation.slice(0, 3)
+                        ? locWeather.hourly.precipitation.slice(0, 12)
                         : new Array();
 
-                    const rain3h = hourlyRain.reduce((sum, val) => sum + (val || 0), 0);
-                    const vulnerability = clone.properties.base_depth_cm / 50;
-                    const estimatedDepth = Math.round(rain3h * 1.5 * vulnerability);
+                    // Calculate total 12h rain AND retained standing water (12% hourly drainage decay)
+                    const totalRain12h = hourlyRain.reduce((sum, val) => sum + (val || 0), 0);
+                    const effectiveRetainedRain = hourlyRain.reduce((sum, val, hourIdx) => {
+                        const hoursAgo = (hourlyRain.length - 1) - hourIdx;
+                        const drainageFactor = Math.pow(0.88, Math.max(0, hoursAgo));
+                        return sum + ((val || 0) * drainageFactor);
+                    }, 0);
 
-                    clone.properties.rain_mm = rain3h;
+                    const vulnerability = clone.properties.base_depth_cm / 50;
+                    const estimatedDepth = Math.round(effectiveRetainedRain * 1.6 * vulnerability);
+
+                    clone.properties.rain_mm = totalRain12h;
                     clone.properties.depth_cm = estimatedDepth;
                     clone.properties.severity = estimatedDepth >= 50 ? 'severe' : estimatedDepth >= 15 ? 'waterlogged' : 'clear';
-                    clone.properties.note = rain3h > 0
-                        ? 'Live rainfall: ' + rain3h.toFixed(1) + ' mm in last 3 hrs'
-                        : 'No active rainfall detected in last 3 hrs';
-                    clone.properties.source = 'Open-Meteo Real-Time API';
+                    clone.properties.note = totalRain12h > 0
+                        ? `12h rainfall: ${totalRain12h.toFixed(1)} mm (retained runoff modeled)`
+                        : 'No significant rainfall in last 12 hrs';
+                    clone.properties.source = 'Open-Meteo 12h Hydrological Model';
                     return clone;
                 });
 
-                floodFeatures = updated.concat(userPins);
+                floodFeatures = updated.concat(communityPins);
                 renderFloodZones();
 
                 const activeCount = floodFeatures.filter(f => f.properties.severity !== 'clear').length;
                 if (statusEl) {
-                    statusEl.innerHTML = ' <b>LIVE MODE:</b> ' + activeCount + ' active waterlogged zones right now.';
+                    statusEl.innerHTML = `🟢 <b>LIVE MODE (12h):</b> ${activeCount} active waterlogged zones right now.`;
                 }
                 if (startPoint && endPoint) computeRoute();
             } catch (e) {
@@ -431,6 +439,7 @@
                 if (statusEl) statusEl.innerHTML = '⚠️ Live weather error: ' + e.message;
             }
         }
+
 
 
         function load2023Simulation() {
