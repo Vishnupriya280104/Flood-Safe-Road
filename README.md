@@ -3,10 +3,19 @@
 # 🌊 Safe Roads in Floods (`Flood_safe_road`)
 ### Community-Powered, Real-Time Hydrological & Vehicle-Aware Safe Routing
 
+<div align="center">
+
+# 🌊 Safe Roads in Floods (`Flood-Safe-Road`)
+### Community-Powered, Real-Time Hydrological & Vehicle-Aware Safe Routing
+
 [![Live Demo](https://shields.io)](https://github.io)
 [![Open Source](https://shields.io)](https://github.com)
 [![License: MIT](https://shields.io)](LICENSE)
-[![Challenge](https://shields.io)](#)
+[![TYSIC](https://shields.io)](#)
+
+*Helping residents, two-wheeler riders, delivery workers, and emergency responders navigate flooded cities safely—without paid APIs or proprietary infrastructure.*
+
+
 
 *Helping residents, two-wheeler riders, delivery workers, and emergency responders navigate flooded cities safely—without paid APIs or proprietary infrastructure.*
 
