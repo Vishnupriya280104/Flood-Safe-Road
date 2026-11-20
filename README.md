@@ -2,7 +2,7 @@
 #  Safe Roads in Floods (`Flood-Safe-Road`)
 ### Community-Powered, Real-Time Hydrological & Vehicle-Aware Safe Routing
 
-**[ Live Demo](https://github.io)** • **[ Source Code](https://github.com)** • ** 100% Open-Source & Free APIs** • ** TYSIC Disaster Resilience**
+**[ Live Demo]: (https://github.io)** • **[ Source Code]: (https://github.com)** • **100% Open-Source & Free APIs** 
 
 *Helping residents, two-wheeler riders, delivery workers, and emergency responders navigate flooded cities safely—without paid APIs or proprietary infrastructure.*
 
