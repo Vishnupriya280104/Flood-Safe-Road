@@ -54,6 +54,14 @@
             float: right;
             margin-left: 6px;
         }
+
+        @media (max-width: 600px) {
+            .panel {
+                max-width: 175px;
+                padding: 8px 10px;
+                font-size: 11px;
+            }
+        }
     </style>
 </head>
 
@@ -823,7 +831,8 @@
     </div>
     <div id="directionsDrawer" class="directions-drawer"></div>
     <div style="margin-top:8px;font-size:11px;color:#64748b;">💡 <b>Tip:</b> Right-click anywhere on the map to report a live flooded road.</div>
-        
+    <div style="margin-top:8px;font-size:11px;color:#64748b;">💡 <b>Tip:</b> Right-click (or <b>long-press on mobile</b>) anywhere on the map to report a flooded road.</div>
+
 
 
   `;
@@ -997,6 +1006,15 @@
                 { timeout: 5000 }
             );
         });
+        // Trigger the exact same 4-level depth picker at the user's current GPS position
+        function reportAtCurrentLocation() {
+            if (!navigator.geolocation) return alert('GPS not supported');
+            navigator.geolocation.getCurrentPosition(pos => {
+                const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+                map.setView(latlng, 15);
+                map.fire('contextmenu', { latlng: latlng });
+            });
+        }
 
 
         function setupAutocomplete(inputId, listId, isStart) {
