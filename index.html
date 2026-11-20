@@ -1,319 +1,1145 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-  <link rel="icon" href="data:,">
-  <title>Flood Safe Roads - Chennai</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:,">
-  <!-- Leaflet: the free library that draws the map -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <style>
-    body { margin: 0; }
-    #map { height: 100vh; }  /* make the map fill the whole screen */
-    .legend { background: white; padding: 8px 10px; border-radius: 6px;
-          font: 13px/1.6 sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,.3); max-width: 250px; }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-
-  <script>
-    // 1. Create the map and point it at Chennai (latitude, longitude), zoom level 11
-    const map = L.map('map').setView([13.0827, 80.2707], 11);
-
-    // 2. Load the actual map pictures from OpenStreetMap
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-
-    // 3. Colors for each severity level
-    const colors = { severe: 'red', waterlogged: 'orange' };
-    let floodFeatures = []; 
-    // 4. Load the flood data file, then draw it on the map
-    fetch('data/flood-2023.geojson')
-    .then(response => response.json())
-    .then(data => {
-      floodFeatures = data.features;
-      console.log('flood spots loaded:', floodFeatures.length);
-      L.geoJSON(data, {
-        // Draw each point as a fixed-size circle marker, colored by severity
-        
-        pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-          radius: 10,
-          color: colors[feature.properties.severity],
-          fillColor: colors[feature.properties.severity],
-          fillOpacity: 0.6,
-          bubblingMouseEvents: false
-        }),
-        // Add a popup with the details when someone clicks a marker
-        onEachFeature: (feature, layer) => {
-          const p = feature.properties;
-          layer.bindPopup(
-            "<b>" + p.name + "</b> (" + p.severity + ")<br>" +
-            p.note + "<br><small>Source: " + p.source + "</small>"
-          );
+    <meta charset="utf-8">
+    <link rel="icon" href="data:,">
+    <title>Flood-Safe-Road | Real-Time Chennai Hydrological Routing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        .suggestion-item:hover {
+            background: #e0f2fe;
         }
-      }).addTo(map);
-            // Faint dashed circles showing the area the app tries to avoid around each spot
-      data.features.forEach(f => {
-        L.circle([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
-          radius: FLOOD_RADIUS[f.properties.severity],
-          color: colors[f.properties.severity],
-          weight: 1,
-          dashArray: '4',
-          fillOpacity: 0.08,
-          interactive: false
+
+        .sos-btn {
+            width: 100%;
+            padding: 8px;
+            margin-top: 6px;
+            border-radius: 5px;
+            border: none;
+            background: #dc2626;
+            color: white;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .sos-btn:hover {
+            background: #b91c1c;
+        }
+
+        .directions-drawer {
+            margin-top: 8px;
+            max-height: 180px;
+            overflow-y: auto;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 6px;
+            font-size: 11px;
+            display: none;
+        }
+
+        .step-item {
+            padding: 5px 4px;
+            border-bottom: 1px solid #f1f5f9;
+            line-height: 1.35;
+        }
+
+        .step-dist {
+            color: #0284c7;
+            font-weight: 600;
+            float: right;
+            margin-left: 6px;
+        }
+    </style>
+</head>
+
+<style>
+    .live-nav-dot {
+        width: 16px;
+        height: 16px;
+        background: #0284c7;
+        border: 3px solid white;
+        border-radius: 50%;
+        box-shadow: 0 0 0 6px rgba(2, 132, 199, 0.35);
+    }
+
+    .search-box {
+        position: relative;
+        margin-bottom: 6px;
+    }
+
+    .search-input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        border: 1px solid #cbd5e1;
+        border-radius: 5px;
+        font-size: 12px;
+    }
+
+    .suggestions {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #cbd5e1;
+        border-radius: 5px;
+        max-height: 150px;
+        overflow-y: auto;
+        z-index: 9999;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        display: none;
+    }
+
+    .suggestion-item {
+        padding: 6px 8px;
+        font-size: 11px;
+        cursor: pointer;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .suggestion-item:hover {
+        background: #e0f2fe;
+    }
+
+    body {
+        margin: 0;
+        font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    #map {
+        height: 100vh;
+    }
+
+    .panel {
+        background: white;
+        padding: 12px 14px;
+        border-radius: 8px;
+        font-size: 13px;
+        line-height: 1.5;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+        max-width: 290px;
+    }
+
+    .panel h3 {
+        margin: 0 0 8px 0;
+        font-size: 15px;
+        color: #0f172a;
+    }
+
+    .mode-group {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 8px;
+    }
+
+    .mode-btn {
+        flex: 1;
+        padding: 6px 4px;
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        color: #334155;
+    }
+
+    .mode-btn.active {
+        background: #0284c7;
+        color: white;
+        border-color: #0284c7;
+    }
+
+    .action-btn {
+        width: 100%;
+        padding: 8px;
+        margin-top: 6px;
+        border-radius: 5px;
+        border: none;
+        background: #0f172a;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 12px;
+    }
+
+    .action-btn:hover {
+        background: #1e293b;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        background: #e0f2fe;
+        color: #0369a1;
+    }
+
+    .status-bar {
+        padding: 6px 8px;
+        border-radius: 5px;
+        font-size: 11px;
+        margin-bottom: 8px;
+        background: #f1f5f9;
+        color: #334155;
+        border-left: 3px solid #0284c7;
+    }
+</style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <script>
+        const map = L.map('map').setView([13.0100, 80.2100], 11);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
-      });
-    });
-    // 5. Variables that remember what the user has chosen so far
-    // 5. Settings. These radii are ASSUMPTIONS (metres), not measured flood sizes
-    // Assumptions (metres), not measured flood sizes
-    const FLOOD_RADIUS = { severe: 500, waterlogged: 300 };
-// The free Valhalla server limits the total size of "avoid" shapes. This is my best guess of a safe budget
-    const MAX_EXCLUDE_PERIMETER = 9000;
 
-// Distance around an 8-sided shape of a given radius (used to stay within the budget)
-    function perimeterOf(radius) {
-      return 8 * 2 * radius * Math.sin(Math.PI / 8);
-}
-
-    let startPoint = null;
-    let endPoint = null;
-    let startMarker = null;
-    let endMarker = null;
-    let normalLayer = null;
-    let safeLayer = null;
-
-// 6. Every click chooses a start point, then an end point
-    map.on('click', function (e) {
-      console.log('clicked:', e.latlng.lat.toFixed(4), e.latlng.lng.toFixed(4));
-      if (startPoint && endPoint) {
-        resetRoute();
-      }
-      if (!startPoint) {
-        startPoint = e.latlng;
-        startMarker = L.marker(e.latlng).addTo(map).bindPopup("Start").openPopup();
-      } else {
-        endPoint = e.latlng;
-        endMarker = L.marker(e.latlng).addTo(map).bindPopup("End").openPopup();
-        getRoute();
-      }
-    });
-
-    function resetRoute() {
-      [startMarker, endMarker, normalLayer, safeLayer].forEach(layer => {
-        if (layer) map.removeLayer(layer);
-      });
-      startPoint = endPoint = null;
-      startMarker = endMarker = normalLayer = safeLayer = null;
-    }
-
-// 7. Show a message in the End popup
-    function showInfo(html) {
-      endMarker.setPopupContent(html).openPopup();
-    }
-
-// 8. Which flood spots does a path pass through? (returns a list of features)
-    function findFloodsOnPath(path) {
-      return floodFeatures.filter(f => {
-        const spot = L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]);
-        const radius = FLOOD_RADIUS[f.properties.severity];
-        return path.some(point => map.distance(L.latLng(point), spot) < radius);
-      });
-    }
-
-// 9. Step A: get the normal route from OSRM
-    function getRoute() {
-      console.log('getRoute called', startPoint, endPoint);
-      const url = 'https://router.project-osrm.org/route/v1/driving/' +
-        startPoint.lng + ',' + startPoint.lat + ';' +
-        endPoint.lng + ',' + endPoint.lat +
-        '?overview=full&geometries=geojson';
-
-      fetch(url)
-        .then(response => response.json())
-        .then(data => {
-          
-          console.log('OSRM answered:', data.code); 
-          if (data.code !== 'Ok') {
-            alert('No route found. Try points closer to a road.');
-            return;
-          }
-          const route = data.routes[0];
-      // OSRM gives [lng, lat]; Leaflet lines want [lat, lng]
-          const normalPath = route.geometry.coordinates.map(c => [c[1], c[0]]);
-          const km = (route.distance / 1000).toFixed(1);
-          const mins = Math.round(route.duration / 60);
-          const hit = findFloodsOnPath(normalPath);
-
-          if (hit.length === 0) {
-            normalLayer = L.polyline(normalPath, { color: 'green', weight: 5 }).addTo(map);
-            map.fitBounds(normalLayer.getBounds());
-            showInfo("This route passes no known flooded area.<br>" + km + " km, about " + mins + " min");
-            return;
-          }
-
-      // The normal route touches flooded areas: show it dashed grey, then look for a safer one
-          normalLayer = L.polyline(normalPath, { color: 'gray', weight: 4, dashArray: '8 8' }).addTo(map);
-          map.fitBounds(normalLayer.getBounds());
-          getSaferRoute(hit, km, mins, hit.map(f => f.properties.name).join(", "), 1);
-        })
-        .catch(error => {
-          console.error(error);
-          alert('Could not reach the routing service.');
+        const F = (name, severity, base_depth_cm, note, source, lng, lat) => ({
+            type: "Feature",
+            properties: { name, severity, base_depth_cm, depth_cm: base_depth_cm, rain_mm: 0, note, source },
+            geometry: { type: "Point", coordinates: [lng, lat] }
         });
-      }
 
-// 10. Step B: ask Valhalla for a route that avoids the flooded spots
-// 10. Step B: ask Valhalla for a route that avoids the flooded spots
-function getSaferRoute(hit, normalKm, normalMins, normalNames, attempt) {
-  const polygons = [];
-  const unavoidable = [];   // the start or end is inside this zone
-  const skipped = [];       // no room left in the free service's size budget
-  let used = 0;             // total size of the avoid-shapes so far (metres)
+        const BASE_HOTSPOTS = [
+            F("Velachery", "severe", 85, "Several areas marooned", "Deccan Herald, 4 Dec 2023", 80.2206, 12.9770),
+            F("Pallikaranai", "severe", 90, "Cars floating in apartment parking; knee-deep water", "Deccan Herald, 4 Dec 2023", 80.2079, 12.9302),
+            F("Mudichur", "severe", 110, "Residents rescued by boat", "Deccan Herald, 5 Dec 2023", 80.0703, 12.9143),
+            F("Perungalathur", "severe", 100, "Residents rescued by boat", "Deccan Herald, 5 Dec 2023", 80.0884, 12.9144),
+            F("Varadharajapuram", "severe", 105, "Residents rescued by boat", "Deccan Herald, 4 Dec 2023", 80.0677, 12.9050),
+            F("Tambaram", "waterlogged", 25, "Inundation reported; people moving to safer zones", "PTI, 6 Dec 2023", 80.1143, 12.9231),
+            F("Vadapalani", "waterlogged", 22, "Waterlogging seen on roads", "ANI, 4 Dec 2023", 80.2109, 13.0501),
+            F("Arumbakkam", "waterlogged", 20, "Waterlogging seen on roads", "ANI, 4 Dec 2023", 80.2077, 13.0740),
+            F("Madipakkam", "severe", 80, "Residents marooned; terraces only dry refuge", "DT Next, 6 Dec 2023", 80.1986, 12.9598),
+            F("Sholinganallur", "severe", 75, "Listed among marooned areas on OMR", "DT Next, 6 Dec 2023", 80.2299, 12.8981),
+            F("Perungudi", "severe", 70, "Heavily waterlogged; residents unable to leave", "Citizen Matters, Dec 2023", 80.2413, 12.9705),
+            F("Thiruvanmiyur", "waterlogged", 35, "Waist-deep water reported around Kamaraj Nagar", "Adyar Times, 9 Dec 2023", 80.2641, 12.9853),
+            F("Saidapet (Adyar Bank)", "severe", 95, "Adyar river overflow submerged low-lying streets", "The Hindu, 5 Dec 2023", 80.2209, 13.0213),
+            F("Kotturpuram", "severe", 85, "Riverbank residential blocks inundated", "The Hindu, 5 Dec 2023", 80.2417, 13.0169),
+            F("T. Nagar (Usman Rd)", "waterlogged", 28, "Subways closed; arterial road waterlogged", "Times of India, 4 Dec 2023", 80.2337, 13.0418),
+            F("Ashok Nagar", "waterlogged", 24, "100 Feet Road & avenues flooded", "DT Next, 5 Dec 2023", 80.2121, 13.0373),
+            F("Guindy Industrial Estate", "waterlogged", 30, "Knee-deep stagnation near Kathipara", "Indian Express, 4 Dec 2023", 80.2127, 13.0067),
+            F("Porur Junction", "waterlogged", 22, "Lake surplus caused heavy road stagnation", "Deccan Herald, 5 Dec 2023", 80.1565, 13.0382),
+            F("Kolathur", "severe", 75, "Retteri lake surplus flooded residential colonies", "The Hindu, 6 Dec 2023", 80.2120, 13.1240),
+            F("Ennore / Manali", "severe", 90, "Kosasthalaiyar backwaters inundated roads", "Citizen Matters, Dec 2023", 80.2760, 13.1680)
+        ];
 
-  // Most serious zones first, so they get priority if we run out of room
-  const sorted = hit.slice().sort((a, b) =>
-    (a.properties.severity === 'severe' ? 0 : 1) -
-    (b.properties.severity === 'severe' ? 0 : 1));
+        let floodFeatures = JSON.parse(JSON.stringify(BASE_HOTSPOTS));
+        let isLiveMode = true;
 
-  sorted.forEach(f => {
-    const center = L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]);
-    const radius = FLOOD_RADIUS[f.properties.severity];
-    if (map.distance(center, startPoint) < radius || map.distance(center, endPoint) < radius) {
-      unavoidable.push(f.properties.name);
-      return;
-    }
-    const size = perimeterOf(radius);
-    if (used + size > MAX_EXCLUDE_PERIMETER) {
-      skipped.push(f.properties.name);
-      return;
-    }
-    used += size;
-    polygons.push(makeCircle(center, radius));
-  });
+        const colors = { severe: '#dc2626', waterlogged: '#f59e0b', clear: '#10b981' };
+        const FLOOD_RADIUS = { severe: 550, waterlogged: 350, clear: 200 };
 
-  const extraText =
-    (unavoidable.length ? "<br>Your start or end is inside: " + unavoidable.join(", ") + " (cannot be avoided)." : "") +
-    (skipped.length ? "<br>Not avoided (too many zones for the free service): " + skipped.join(", ") + "." : "");
+        const MODES = {
+            walk: { label: 'Walk', costing: 'pedestrian', maxDepthCm: 12, speedKmh: 5 },
+            bike: { label: 'Bike / 2W', costing: 'bicycle', maxDepthCm: 18, speedKmh: 22 },
+            car: { label: 'Car', costing: 'auto', maxDepthCm: 32, speedKmh: 30 },
+            suv: { label: 'Rescue SUV', costing: 'auto', maxDepthCm: 65, speedKmh: 35 }
+        };
 
-  if (polygons.length === 0) {
-    showInfo("The route passes: " + normalNames + "." + extraText +
-      "<br>" + normalKm + " km (normal conditions).");
-    return;
-  }
+        let currentMode = 'bike';
+        let startPoint = null, endPoint = null;
+        let startMarker = null, endMarker = null;
+        let normalLayer = null, safeLayer = null;
+        const floodLayerGroup = L.layerGroup().addTo(map);
 
-  const request = {
-    locations: [
-      { lat: startPoint.lat, lon: startPoint.lng },
-      { lat: endPoint.lat, lon: endPoint.lng }
-    ],
-    costing: 'auto',
-    exclude_polygons: polygons,
-    directions_options: { units: 'kilometers' }
-  };
-  const url = 'https://valhalla1.openstreetmap.de/route?json=' +
-    encodeURIComponent(JSON.stringify(request));
+        function renderFloodZones() {
+            floodLayerGroup.clearLayers();
+            floodFeatures.forEach(f => {
+                const p = f.properties;
+                const latlng = [f.geometry.coordinates[1], f.geometry.coordinates[0]];
+                const color = colors[p.severity];
+                const sensor = p.source === 'User Report' ? 'Community report (unverified)'
+                    : isLiveMode ? `Open-Meteo rainfall (${p.rain_mm.toFixed(1)} mm / 3h)`
+                        : 'News report, Dec 2023';
+                L.circleMarker(latlng, {
+                    radius: 8, color: color, fillColor: color, fillOpacity: 0.75
+                }).bindPopup(
+                    `<b>${p.name}</b><br>` +
+                    `<b>Water Depth:</b> ${p.depth_cm} cm (${p.severity.toUpperCase()})<br>` +
+                    `${p.note}<br>` +
+                    `<span class="badge">${sensor}</span><br>` +
+                    `<small>${p.source}</small>`
+                ).addTo(floodLayerGroup);
 
-  fetch(url)
-    .then(response => {
-      if (!response.ok) {
-        // Read the server's own explanation so we can see the real reason
-        return response.text().then(text => {
-          throw new Error('Valhalla error ' + response.status + ': ' + text);
+                if (p.severity !== 'clear') {
+                    L.circle(latlng, {
+                        radius: FLOOD_RADIUS[p.severity],
+                        color: color, weight: 1, dashArray: '4', fillOpacity: 0.08, interactive: false
+                    }).addTo(floodLayerGroup);
+                }
+            });
+        }
+
+        async function syncLiveWeather() {
+            const statusEl = document.getElementById('weatherStatus');
+            if (statusEl) statusEl.innerHTML = '⏳ Fetching live Chennai rainfall...';
+
+            try {
+                const lats = BASE_HOTSPOTS.map(f => f.geometry.coordinates.at(1)).join(',');
+                const lngs = BASE_HOTSPOTS.map(f => f.geometry.coordinates.at(0)).join(',');
+                const apiUrl = new URL('https://open-meteo.com');
+                apiUrl.hostname = 'api.open-meteo.com';
+                apiUrl.pathname = '/v1/forecast';
+                apiUrl.searchParams.set('latitude', lats);
+                apiUrl.searchParams.set('longitude', lngs);
+                apiUrl.searchParams.set('hourly', 'precipitation');
+                apiUrl.searchParams.set('past_hours', '3');
+                apiUrl.searchParams.set('forecast_hours', '1');
+
+
+                const res = await fetch(apiUrl.toString());
+
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+
+                const userPins = floodFeatures.filter(f => f.properties.source === 'User Report');
+
+                const updated = BASE_HOTSPOTS.map((spot, idx) => {
+                    const clone = JSON.parse(JSON.stringify(spot));
+                    const locWeather = Array.isArray(data) ? data.at(idx) : data;
+                    const hourlyRain = (locWeather && locWeather.hourly && locWeather.hourly.precipitation)
+                        ? locWeather.hourly.precipitation.slice(0, 3)
+                        : new Array();
+
+                    const rain3h = hourlyRain.reduce((sum, val) => sum + (val || 0), 0);
+                    const vulnerability = clone.properties.base_depth_cm / 50;
+                    const estimatedDepth = Math.round(rain3h * 1.5 * vulnerability);
+
+                    clone.properties.rain_mm = rain3h;
+                    clone.properties.depth_cm = estimatedDepth;
+                    clone.properties.severity = estimatedDepth >= 50 ? 'severe' : estimatedDepth >= 15 ? 'waterlogged' : 'clear';
+                    clone.properties.note = rain3h > 0
+                        ? 'Live rainfall: ' + rain3h.toFixed(1) + ' mm in last 3 hrs'
+                        : 'No active rainfall detected in last 3 hrs';
+                    clone.properties.source = 'Open-Meteo Real-Time API';
+                    return clone;
+                });
+
+                floodFeatures = updated.concat(userPins);
+                renderFloodZones();
+
+                const activeCount = floodFeatures.filter(f => f.properties.severity !== 'clear').length;
+                if (statusEl) {
+                    statusEl.innerHTML = ' <b>LIVE MODE:</b> ' + activeCount + ' active waterlogged zones right now.';
+                }
+                if (startPoint && endPoint) computeRoute();
+            } catch (e) {
+                console.error('Weather sync failed:', e);
+                if (statusEl) statusEl.innerHTML = '⚠️ Live weather error: ' + e.message;
+            }
+        }
+
+
+        function load2023Simulation() {
+            const userPins = floodFeatures.filter(f => f.properties.source === 'User Report');
+            floodFeatures = [...JSON.parse(JSON.stringify(BASE_HOTSPOTS)), ...userPins];
+            renderFloodZones();
+            const statusEl = document.getElementById('weatherStatus');
+            if (statusEl) statusEl.innerHTML = '🟠 <b>SIMULATION:</b> Dec 2023 Cyclone (20 active zones)';
+            if (startPoint && endPoint) computeRoute();
+        }
+
+        map.on('click', e => {
+            if (startPoint && endPoint) resetRoute();
+            if (!startPoint) {
+                startPoint = e.latlng;
+                startMarker = L.marker(e.latlng).addTo(map).bindPopup("Start").openPopup();
+            } else {
+                endPoint = e.latlng;
+                endMarker = L.marker(e.latlng).addTo(map).bindPopup("Finding safe route...").openPopup();
+                computeRoute();
+            }
         });
-      }
-      return response.json();
-    })
-    .then(data => {
-      const path = decodePolyline(data.trip.legs[0].shape);
 
-      // Does the detour pass near OTHER flooded areas we did not tell Valhalla about?
-      const newHits = findFloodsOnPath(path).filter(f =>
-        !hit.includes(f) && !unavoidable.includes(f.properties.name));
-      const roomLeft = newHits.some(f =>
-        used + perimeterOf(FLOOD_RADIUS[f.properties.severity]) <= MAX_EXCLUDE_PERIMETER);
-      if (newHits.length > 0 && roomLeft && attempt < 3) {
-        getSaferRoute(hit.concat(newHits), normalKm, normalMins, normalNames, attempt + 1);
-        return;
-      }
+        // Community Report with 4 Depth Categories, Elevation Cross-Check & Auto-Expiry
+        map.on('contextmenu', async e => {
+            const lat = e.latlng.lat;
+            const lng = e.latlng.lng;
 
-      safeLayer = L.polyline(path, { color: 'green', weight: 5 }).addTo(map);
-      map.fitBounds(safeLayer.getBounds());
+            // Fetch real ground elevation (DEM) from Open-Meteo Elevation API
+            let elevText = 'Checking elevation...';
+            try {
+                const elevUrl = new URL('https://open-meteo.com');
+                elevUrl.hostname = '://open-meteo.com';
+                elevUrl.pathname = '/v1/elevation';
+                elevUrl.searchParams.set('latitude', String(lat));
+                elevUrl.searchParams.set('longitude', String(lng));
+                const res = await fetch(elevUrl.toString());
+                const elevData = await res.json();
+                const meters = elevData.elevation && elevData.elevation.at(0);
+                if (meters !== undefined) {
+                    const risk = meters <= 6 ? 'High (Low-lying)' : meters <= 12 ? 'Moderate' : 'Low (Elevated)';
+                    elevText = `Elevation: ${meters.toFixed(1)}m ASL • Plausibility: ${risk}`;
+                }
+            } catch (err) {
+                elevText = 'Elevation: DEM check offline';
+            }
 
-      const safeKm = data.trip.summary.length.toFixed(1);
-      const stillHit = findFloodsOnPath(path)
-        .map(f => f.properties.name)
-        .filter(n => !unavoidable.includes(n));
-      const stillText = stillHit.length
-        ? "<br>Still close to: " + stillHit.join(", ") : "";
+            // Show the 4 Depth Categories promised in your TYSIC proposal
+            const pickerHtml = `
+    <div style="font-size:12px;min-width:190px;">
+      <b>📢 Report Flood Depth</b><br>
+      <small style="color:#0369a1;">${elevText}</small><br>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:6px;">
+        <button class="mode-btn" onclick="submitCommunityReport(${lat}, ${lng}, 'Ankle', 15, '${elevText}')">🦶 Ankle (~15cm)</button>
+        <button class="mode-btn" onclick="submitCommunityReport(${lat}, ${lng}, 'Knee', 45, '${elevText}')">🦵 Knee (~45cm)</button>
+        <button class="mode-btn" onclick="submitCommunityReport(${lat}, ${lng}, 'Half wheel', 65, '${elevText}')">🛞 Half wheel (~65cm)</button>
+        <button class="mode-btn" onclick="submitCommunityReport(${lat}, ${lng}, 'Above wheel', 95, '${elevText}')">🌊 Above wheel (~95cm)</button>
+      </div>
+    </div>
+  `;
 
-      showInfo(" Normal route (grey) passes: " + normalNames + "." + extraText +
-        "<br>Safer route (green): " + safeKm + " km (normal: " + normalKm + " km)" +
-        "<br>Times differ between routing engines, so compare distances." + stillText);
-    })
-    .catch(error => {
-      console.error(error);
-      showInfo(" The route passes: " + normalNames + "." + extraText +
-        "<br>Could not get a safer route from the free service (see Console for the reason).");
-    });
-}
+            L.popup().setLatLng(e.latlng).setContent(pickerHtml).openOn(map);
+        });
 
-// 11. Build an 8-sided shape around a flood spot. Valhalla wants [lng, lat] points
-    function makeCircle(center, radius) {
-      const points = [];
-      const sides = 8;
-      for (let i = 0; i < sides; i++) {
-        const angle = (2 * Math.PI * i) / sides;
-        const dLat = (radius * Math.cos(angle)) / 111320;
-        const dLng = (radius * Math.sin(angle)) / (111320 * Math.cos(center.lat * Math.PI / 180));
-        points.push([center.lng + dLng, center.lat + dLat]);
-      }
-      points.push(points[0]);   // close the shape
-      return points;
-    }
+        window.submitCommunityReport = function (lat, lng, category, depthCm, elevText) {
+            map.closePopup();
+            const severity = depthCm >= 50 ? 'severe' : 'waterlogged';
+            const expiresAt = Date.now() + (6 * 60 * 60 * 1000); // Auto-expires in 6 hours
 
-// 12. Valhalla sends its route as a compressed text string; this turns it back into points
-    function decodePolyline(encoded) {
-      let index = 0, lat = 0, lng = 0;
-      const coords = [];
-      while (index < encoded.length) {
-        let result = 0, shift = 0, b;
-        do {
-          b = encoded.charCodeAt(index++) - 63;
-          result |= (b & 0x1f) << shift;
-          shift += 5;
-        } while (b >= 0x20);
-        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
-        result = 0; shift = 0;
-        do {
-          b = encoded.charCodeAt(index++) - 63;
-          result |= (b & 0x1f) << shift;
-          shift += 5;
-        } while (b >= 0x20);
-        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
-        coords.push([lat / 1e6, lng / 1e6]);
-      }
-      return coords;
-    }
-    // 13. A legend that explains the map
-    const legend = L.control({ position: 'bottomleft' });
-    legend.onAdd = function () {
-      const div = L.DomUtil.create('div', 'legend');
-      div.innerHTML =
-        "<b>How to use</b><br>Click the map to set Start, click again to set End, click a third time to reset.<br><br>" +
-        "<span style='color:red'>●</span> Severe (rescues reported)<br>" +
-        "<span style='color:orange'>●</span> Waterlogged<br>" +
-        "<span style='color:gray'>╌╌</span> Normal route<br>" +
-        "<span style='color:green'>━━</span> Safer route<br>" +
-        "<small>Dashed circles are assumed avoidance zones, not measured flood extents. " +
-        "Data is from Dec 2023 reports, not live.</small>";
-      return div;
-    };
-    legend.addTo(map);
-    
-  </script>
+            const report = F(
+                `Community Report: ${category} Deep`,
+                severity,
+                depthCm,
+                `${elevText} • Expires in 6h`,
+                'User Report',
+                lng,
+                lat
+            );
+            report.properties.confirmations = 1;
+            report.properties.expiresAt = expiresAt;
+
+            floodFeatures.push(report);
+            renderFloodZones();
+            if (startPoint && endPoint) computeRoute();
+        };
+
+        // Auto-expire old community reports every minute so receding water never blocks roads
+        setInterval(() => {
+            const now = Date.now();
+            const before = floodFeatures.length;
+            floodFeatures = floodFeatures.filter(f => !f.properties.expiresAt || f.properties.expiresAt > now);
+            if (floodFeatures.length !== before) {
+                renderFloodZones();
+                if (startPoint && endPoint) computeRoute();
+            }
+        }, 60000);
+
+
+        function resetRoute() {
+            [startMarker, endMarker, normalLayer, safeLayer].forEach(l => l && map.removeLayer(l));
+            startPoint = endPoint = startMarker = endMarker = normalLayer = safeLayer = null;
+            document.getElementById('directionsDrawer').style.display = 'none';
+            activeRoutePath = new Array();
+        }
+
+        function showInfo(html) {
+            if (endMarker) endMarker.setPopupContent(html).openPopup();
+        }
+
+        function getBlockedZones(path) {
+            const limit = MODES[currentMode].maxDepthCm;
+            return floodFeatures.filter(f => {
+                if (f.properties.depth_cm <= limit || f.properties.severity === 'clear') return false;
+                const spot = L.latLng(f.geometry.coordinates.at(1), f.geometry.coordinates.at(0));
+                const r = FLOOD_RADIUS[f.properties.severity];
+                return path.some(pt => map.distance(L.latLng(pt), spot) < r);
+            });
+        }
+
+        function createCirclePolygon(lng, lat, radiusMeters, points = 12) {
+            const coords = [];
+            const dLat = (radiusMeters / 6378137) * (180 / Math.PI);
+            const dLng = dLat / Math.cos((lat * Math.PI) / 180);
+            for (let i = 0; i < points; i++) {
+                const theta = (i / points) * (2 * Math.PI);
+                coords.push(Array.of(
+                    +(lng + dLng * Math.cos(theta)).toFixed(5),
+                    +(lat + dLat * Math.sin(theta)).toFixed(5)
+                ));
+            }
+            // Close the polygon ring (first point === last point) as required by Valhalla
+            coords.push(coords.at(0));
+            return coords;
+        }
+
+        function decodePolyline(str, precision = 6) {
+            let index = 0, lat = 0, lng = 0, coordinates = [], factor = Math.pow(10, precision);
+            while (index < str.length) {
+                let byte = null, shift = 0, result = 0;
+                do {
+                    byte = str.charCodeAt(index++) - 63;
+                    result |= (byte & 0x1f) << shift;
+                    shift += 5;
+                } while (byte >= 0x20);
+                lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
+
+                shift = 0;
+                result = 0;
+                do {
+                    byte = str.charCodeAt(index++) - 63;
+                    result |= (byte & 0x1f) << shift;
+                    shift += 5;
+                } while (byte >= 0x20);
+                lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
+
+                coordinates.push([lat / factor, lng / factor]);
+            }
+            return coordinates;
+        }
+
+        async function fetchValhalla(start, end, mode, excludePolygons = new Array()) {
+            const payload = {
+                locations: Array.of(
+                    { lat: start.lat, lon: start.lng },
+                    { lat: end.lat, lon: end.lng }
+                ),
+                costing: mode.costing,
+                exclude_polygons: excludePolygons,
+                directions_options: { units: 'kilometers' }
+            };
+
+            const valhallaUrl = new URL('https://openstreetmap.de');
+            valhallaUrl.hostname = 'valhalla1.openstreetmap.de';
+            valhallaUrl.pathname = '/route';
+
+            const res = await fetch(valhallaUrl.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+            if (!res.ok || !data.trip) {
+                console.error('Valhalla response error:', data);
+                throw new Error(data.error || 'Valhalla routing failed');
+            }
+
+            return {
+                path: decodePolyline(data.trip.legs.at(0).shape, 6),
+                km: data.trip.summary.length
+            };
+        }
+
+
+        async function computeRoute() {
+            if (!startPoint || !endPoint) return;
+            if (normalLayer) map.removeLayer(normalLayer);
+            if (safeLayer) map.removeLayer(safeLayer);
+            const mode = MODES[currentMode];
+
+            try {
+                const direct = await fetchValhalla(startPoint, endPoint, mode, new Array());
+                const blocked = getBlockedZones(direct.path);
+
+                // 1. GREEN: Direct route is already 100% clear
+                if (blocked.length === 0) {
+                    renderDirections(direct.maneuvers, 'Turn-by-Turn (Direct)');
+                    normalLayer = L.polyline(direct.path, { color: '#16a34a', weight: 5 }).addTo(map);
+                    activeRoutePath = direct.path;
+                    map.fitBounds(normalLayer.getBounds(), { padding: L.point(40, 40) });
+                    const mins = Math.round((direct.km / mode.speedKmh) * 60);
+                    showInfo(
+                        `<b>🟢 Complete Safe ${mode.label} Route</b><br>` +
+                        `${direct.km.toFixed(1)} km (~${mins} min)<br>` +
+                        `<small>All water levels ≤ ${mode.maxDepthCm} cm limit.</small>`
+                    );
+                    return;
+                }
+
+                const toPolygon = f => createCirclePolygon(
+                    f.geometry.coordinates.at(0),
+                    f.geometry.coordinates.at(1),
+                    Math.min(FLOOD_RADIUS[f.properties.severity], 200),
+                    8
+                );
+
+                const isSafeFromPins = f => {
+                    const center = L.latLng(f.geometry.coordinates.at(1), f.geometry.coordinates.at(0));
+                    const r = Math.min(FLOOD_RADIUS[f.properties.severity], 200);
+                    return map.distance(center, startPoint) > r && map.distance(center, endPoint) > r;
+                };
+
+                let avoidedSet = blocked.filter(isSafeFromPins);
+
+                // 2. ORANGE: Start or Destination is inside a flood zone (unavoidable)
+                if (avoidedSet.length === 0) {
+                    renderDirections(direct.maneuvers, 'Turn-by-Turn (Caution)');
+                    normalLayer = L.polyline(direct.path, { color: '#f97316', weight: 5 }).addTo(map);
+                    activeRoutePath = direct.path;
+                    map.fitBounds(normalLayer.getBounds(), { padding: L.point(40, 40) });
+                    const mins = Math.round((direct.km / mode.speedKmh) * 60);
+                    const pinZones = blocked.map(b => `${b.properties.name} (${b.properties.depth_cm}cm)`).join(', ');
+                    showInfo(
+                        `<b>🟠 Partial Risk Route (${mode.label})</b><br>` +
+                        `${direct.km.toFixed(1)} km (~${mins} min)<br>` +
+                        `<small>⚠️ Cannot avoid start/end flood zone: ${pinZones}</small>`
+                    );
+                    return;
+                }
+
+                // 3. RED DASHED: Direct route is flooded / unsafe
+                normalLayer = L.polyline(direct.path, { color: '#dc2626', weight: 4, dashArray: '8 8' }).addTo(map);
+
+                // Pass 1 & 2: Compute detour around external flood zones
+                let safeRoute = await fetchValhalla(startPoint, endPoint, mode, avoidedSet.map(toPolygon));
+                const secondaryHits = getBlockedZones(safeRoute.path).filter(
+                    f => !avoidedSet.includes(f) && isSafeFromPins(f)
+                );
+                if (secondaryHits.length > 0 && (avoidedSet.length + secondaryHits.length) <= 7) {
+                    avoidedSet = avoidedSet.concat(secondaryHits);
+                    safeRoute = await fetchValhalla(startPoint, endPoint, mode, avoidedSet.map(toPolygon));
+                }
+
+                // Check if any flood zone STILL remains on the detour (e.g., around start/end pin)
+                const remainingFloods = getBlockedZones(safeRoute.path);
+                const isCompletelySafe = remainingFloods.length === 0;
+                const detourColor = isCompletelySafe ? '#16a34a' : '#f97316'; // Green if 100% clear, Orange if partial
+
+                safeLayer = L.polyline(safeRoute.path, { color: detourColor, weight: 5 }).addTo(map);
+                activeRoutePath = safeRoute.path;
+                map.fitBounds(L.featureGroup(Array.of(normalLayer, safeLayer)).getBounds(), { padding: L.point(40, 40) });
+
+                const mins = Math.round((safeRoute.km / mode.speedKmh) * 60);
+                const avoidedNames = avoidedSet.map(b => `${b.properties.name} (${b.properties.depth_cm}cm)`).join(', ');
+                const remainingNames = remainingFloods.map(b => `${b.properties.name} (${b.properties.depth_cm}cm)`).join(', ');
+
+                if (isCompletelySafe) {
+                    showInfo(
+                        `<b>🟢 Complete Safe ${mode.label} Detour</b><br>` +
+                        `<span style="color:#16a34a"><b>Safe:</b> ${safeRoute.km.toFixed(1)} km (~${mins} min)</span> | ` +
+                        `<span style="color:#dc2626">Flooded: ${direct.km.toFixed(1)} km</span><br>` +
+                        `<small><b>Avoided:</b> ${avoidedNames}</small>`
+                    );
+                } else {
+                    showInfo(
+                        `<b>🟠 Partial Safe ${mode.label} Detour</b><br>` +
+                        `<span style="color:#f97316"><b>Detour:</b> ${safeRoute.km.toFixed(1)} km (~${mins} min)</span> | ` +
+                        `<span style="color:#dc2626">Flooded: ${direct.km.toFixed(1)} km</span><br>` +
+                        `<small><b>Avoided:</b> ${avoidedNames}<br>` +
+                        `⚠️ <b>Still crosses:</b> ${remainingNames}</small>`
+                    );
+                    renderDirections(safeRoute.maneuvers, 'Turn-by-Turn Safe Detour');
+                }
+            } catch (err) {
+                console.error('Routing error:', err);
+                showInfo(`<b>Detour Error:</b> ${err.message}`);
+            }
+        }
+        // 1. NEW TOP-LEFT SEARCH BOX PANEL
+        const searchPanel = L.control({ position: 'topleft' });
+        searchPanel.onAdd = function () {
+            const div = L.DomUtil.create('div', 'panel');
+            L.DomEvent.disableClickPropagation(div);
+            div.style.width = '250px';
+            div.innerHTML = `
+    <div style="font-weight:700;font-size:12px;color:#0f172a;margin-bottom:6px;">📍 Plan Route</div>
+    <button class="action-btn" id="useMyLocBtn" style="margin-top:0;margin-bottom:6px;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;">
+      📍 Use My Current Location
+    </button>
+    <div class="search-box">
+      <input type="text" id="fromInput" class="search-input" placeholder="From: Type location..." autocomplete="off">
+      <div id="fromSuggestions" class="suggestions"></div>
+    </div>
+    <div class="search-box" style="margin-bottom:0;">
+      <input type="text" id="toInput" class="search-input" placeholder="To: Type destination..." autocomplete="off">
+      <div id="toSuggestions" class="suggestions"></div>
+    </div>
+  `;
+            return div;
+        };
+        searchPanel.addTo(map);
+        // One-click "Use My Current Location" button in Plan Route box
+        document.getElementById('useMyLocBtn').addEventListener('click', () => {
+            const btn = document.getElementById('useMyLocBtn');
+            if (!navigator.geolocation) {
+                alert('Geolocation is not supported by your browser.');
+                return;
+            }
+
+            btn.textContent = '⏳ Getting GPS location...';
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    btn.textContent = '📍 Use My Current Location';
+                    const pt = L.latLng(pos.coords.latitude, pos.coords.longitude);
+
+                    if (startMarker) map.removeLayer(startMarker);
+                    startPoint = pt;
+                    startMarker = L.marker(pt).addTo(map).bindPopup('📍 My Current Location').openPopup();
+
+                    document.getElementById('fromInput').value = `My Location (${pt.lat.toFixed(4)}, ${pt.lng.toFixed(4)})`;
+                    map.setView(pt, 14);
+
+                    if (endPoint) computeRoute();
+                },
+                err => {
+                    btn.textContent = '📍 Use My Current Location';
+                    alert('Could not get location: ' + err.message);
+                },
+                { enableHighAccuracy: true, timeout: 8000 }
+            );
+        });
+
+
+        // 2. EXISTING TOP-RIGHT VEHICLE & DEMO PANEL (WITHOUT SEARCH BOXES)
+        const panel = L.control({ position: 'topright' });
+        panel.onAdd = function () {
+            const div = L.DomUtil.create('div', 'panel');
+            L.DomEvent.disableClickPropagation(div);
+            div.innerHTML = `
+    <h3>Flood-Safe-Road Routing</h3>
+    <div class="status-bar" id="weatherStatus">Initializing...</div>
+    <div class="mode-group">
+      <button class="mode-btn" id="liveModeBtn" style="background:#16a34a;color:white;border-color:#16a34a">Live Weather</button>
+      <button class="mode-btn" id="simModeBtn">Dec 2023 Demo</button>
+    </div>
+    <div class="mode-group">
+      <button class="mode-btn" data-mode="walk">Walk<br><small>≤12cm</small></button>
+      <button class="mode-btn active" data-mode="bike">Bike<br><small>≤18cm</small></button>
+      <button class="mode-btn" data-mode="car">Car<br><small>≤32cm</small></button>
+      <button class="mode-btn" data-mode="suv">SUV<br><small>≤65cm</small></button>
+    </div>
+    <button class="action-btn" id="longDemoBtn">Long Route (Tambaram → Anna Nagar)</button>
+    <button class="action-btn" style="background:#0284c7" id="southDemoBtn">South Route (Sholinganallur → Guindy)</button>
+    <button class="action-btn" style="background:#64748b" id="clearBtn">Clear Route & Pins</button>
+    <button class="sos-btn" id="hospitalBtn">🚨 Nearest Safe Hospital</button>
+    <div class="mode-group" style="margin-top:6px;">
+      <button class="action-btn" style="margin-top:0;background:#0f766e;" id="simNavBtn">➤ Simulate Drive</button>
+      <button class="action-btn" style="margin-top:0;background:#1d4ed8;" id="liveGpsBtn">📡 Live GPS</button>
+    </div>
+    <div id="directionsDrawer" class="directions-drawer"></div>
+    <div style="margin-top:8px;font-size:11px;color:#64748b;">💡 <b>Tip:</b> Right-click anywhere on the map to report a live flooded road.</div>
+        
+
+
+  `;
+            return div;
+        };
+        panel.addTo(map);
+        // Render Valhalla turn-by-turn maneuvers inside the panel drawer
+        function renderDirections(maneuvers, titleText) {
+            const drawer = document.getElementById('directionsDrawer');
+            if (!drawer) return;
+
+            if (!maneuvers || maneuvers.length === 0) {
+                drawer.style.display = 'none';
+                return;
+            }
+
+            let html = `<div style="font-weight:700;color:#0f172a;margin-bottom:4px;">🧭 ${titleText}</div>`;
+            maneuvers.forEach((step, i) => {
+                const distText = step.length >= 1
+                    ? step.length.toFixed(1) + ' km'
+                    : Math.round(step.length * 1000) + ' m';
+                html += `
+      <div class="step-item">
+        <span class="step-dist">${distText}</span>
+        <b>${i + 1}.</b> ${step.instruction}
+      </div>
+    `;
+            });
+
+            drawer.innerHTML = html;
+            drawer.style.display = 'block';
+        }
+
+        // Backup hospital list in case Overpass API is slow or offline
+        const FALLBACK_HOSPITALS = Array.of(
+            { name: "Rajiv Gandhi Govt General Hospital (Park Town)", lat: 13.0818, lng: 80.2775 },
+            { name: "Apollo Hospitals (Greams Road)", lat: 13.0631, lng: 80.2518 },
+            { name: "MIOT International (Manapakkam)", lat: 13.0213, lng: 80.1852 },
+            { name: "Fortis Malar Hospital (Adyar)", lat: 13.0068, lng: 80.2570 },
+            { name: "SIMS Hospital (Vadapalani)", lat: 13.0519, lng: 80.2121 },
+            { name: "Kauvery Hospital (Alwarpet)", lat: 13.0339, lng: 80.2535 },
+            { name: "Sri Ramachandra Medical Centre (Porur)", lat: 13.0394, lng: 80.1436 },
+            { name: "Dr. Rela Institute (Chromepet)", lat: 12.9553, lng: 80.1419 },
+            { name: "Global Hospitals (Perumbakkam)", lat: 12.8996, lng: 80.2059 },
+            { name: "Stanley Medical College Hospital (Royapuram)", lat: 13.1067, lng: 80.2869 }
+        );
+
+        // Fetch ALL real hospitals within 5km from OpenStreetMap Overpass API
+        async function fetchNearbyHospitals(lat, lng, radiusMeters = 3000) {
+            const keywords = Array.of('hospital', 'medical', 'clinic');
+            const origin = L.latLng(lat, lng);
+
+            const requests = keywords.map(async kw => {
+                const photonUrl = new URL('https://komoot.io');
+                photonUrl.hostname = 'photon.komoot.io';
+                photonUrl.pathname = '/api/';
+                photonUrl.searchParams.set('q', kw);
+                photonUrl.searchParams.set('osm_tag', 'amenity:hospital');
+                photonUrl.searchParams.set('lat', String(lat));
+                photonUrl.searchParams.set('lon', String(lng));
+                photonUrl.searchParams.set('limit', '15');
+
+                const res = await fetch(photonUrl.toString());
+                if (!res.ok) return new Array();
+                const data = await res.json();
+                return data.features || new Array();
+            });
+
+            const results = await Promise.all(requests);
+            const allFeatures = results.flat();
+            const seen = new Set();
+
+            return allFeatures
+                .map(feat => {
+                    const hLat = feat.geometry.coordinates.at(1);
+                    const hLng = feat.geometry.coordinates.at(0);
+                    const props = feat.properties || {};
+                    const name = props.name;
+                    if (!hLat || !hLng || !name || props.osm_key === 'highway') return null;
+
+                    const key = `${name}-${hLat.toFixed(4)}`;
+                    if (seen.has(key)) return null;
+                    seen.add(key);
+
+                    if (map.distance(origin, L.latLng(hLat, hLng)) > radiusMeters) return null;
+                    return { name: name, lat: hLat, lng: hLng };
+                })
+                .filter(Boolean);
+        }
+
+
+
+
+        async function routeToNearestSafeHospital(userLatLng) {
+            const btn = document.getElementById('hospitalBtn');
+            if (btn) btn.textContent = '⏳ Scanning nearby hospitals...';
+
+            let hospitalList = FALLBACK_HOSPITALS;
+            try {
+                const liveHospitals = await fetchNearbyHospitals(userLatLng.lat, userLatLng.lng, 5000);
+                if (liveHospitals.length > 0) {
+                    hospitalList = liveHospitals;
+                }
+            } catch (e) {
+                console.warn('Using fallback hospital list:', e);
+            }
+
+            if (btn) btn.textContent = '🚨 Nearest Safe Hospital';
+
+            const limit = MODES[currentMode].maxDepthCm;
+
+            // Filter out hospitals sitting inside an active flood zone deeper than vehicle limit
+            const dryHospitals = hospitalList.filter(hosp => {
+                const hPt = L.latLng(hosp.lat, hosp.lng);
+                return !floodFeatures.some(f => {
+                    if (f.properties.depth_cm <= limit || f.properties.severity === 'clear') return false;
+                    const spot = L.latLng(f.geometry.coordinates.at(1), f.geometry.coordinates.at(0));
+                    return map.distance(hPt, spot) < FLOOD_RADIUS[f.properties.severity];
+                });
+            });
+
+            const candidates = dryHospitals.length > 0 ? dryHospitals : hospitalList;
+            candidates.sort((a, b) =>
+                map.distance(userLatLng, L.latLng(a.lat, a.lng)) - map.distance(userLatLng, L.latLng(b.lat, b.lng))
+            );
+
+            const nearest = candidates.at(0);
+            resetRoute();
+            startPoint = userLatLng;
+            endPoint = L.latLng(nearest.lat, nearest.lng);
+
+            document.getElementById('fromInput').value = 'My Current Location';
+            document.getElementById('toInput').value = nearest.name;
+
+            startMarker = L.marker(startPoint).addTo(map).bindPopup('📍 Start: Your Location');
+            endMarker = L.marker(endPoint).addTo(map).bindPopup('🏥 ' + nearest.name).openPopup();
+            computeRoute();
+        }
+
+        document.getElementById('hospitalBtn').addEventListener('click', () => {
+            const btn = document.getElementById('hospitalBtn');
+            btn.textContent = '⏳ Locating GPS...';
+
+            // If user already picked a start pin on the map, route from there; otherwise use browser GPS
+            if (startPoint && !endPoint) {
+                btn.textContent = '🚨 Nearest Safe Hospital';
+                routeToNearestSafeHospital(startPoint);
+                return;
+            }
+
+            if (!navigator.geolocation) {
+                btn.textContent = '🚨 Nearest Safe Hospital';
+                routeToNearestSafeHospital(L.latLng(13.0418, 80.2337)); // Fallback to T. Nagar
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    btn.textContent = '🚨 Nearest Safe Hospital';
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    // If user is testing from outside Chennai (e.g., Bengaluru), use T. Nagar Chennai so demo works
+                    const inChennai = lat >= 12.75 && lat <= 13.30 && lng >= 79.95 && lng <= 80.40;
+                    const origin = inChennai ? L.latLng(lat, lng) : L.latLng(13.0418, 80.2337);
+                    routeToNearestSafeHospital(origin);
+                },
+                () => {
+                    btn.textContent = '🚨 Nearest Safe Hospital';
+                    routeToNearestSafeHospital(L.latLng(13.0418, 80.2337)); // Fallback if GPS denied
+                },
+                { timeout: 5000 }
+            );
+        });
+
+
+        function setupAutocomplete(inputId, listId, isStart) {
+            const input = document.getElementById(inputId);
+            const list = document.getElementById(listId);
+            let timer = null;
+
+            input.addEventListener('input', () => {
+                clearTimeout(timer);
+                const query = input.value.trim();
+                if (query.length < 3) {
+                    list.style.display = 'none';
+                    return;
+                }
+
+                // Wait 300ms after user stops typing before calling API
+                timer = setTimeout(async () => {
+                    try {
+                        const searchUrl = new URL('https://komoot.io');
+                        searchUrl.hostname = 'photon.komoot.io';
+                        searchUrl.pathname = '/api/';
+                        searchUrl.searchParams.set('q', query);
+                        searchUrl.searchParams.set('lat', String(map.getCenter().lat));
+                        searchUrl.searchParams.set('lon', String(map.getCenter().lng));
+                        searchUrl.searchParams.set('limit', '5');
+
+                        const res = await fetch(searchUrl.toString());
+                        const data = await res.json();
+                        list.innerHTML = '';
+
+                        if (!data.features || data.features.length === 0) {
+                            list.style.display = 'none';
+                            return;
+                        }
+
+                        data.features.forEach(feat => {
+                            const props = feat.properties;
+                            const label = Array.of(props.name, props.suburb, props.city)
+                                .filter(Boolean)
+                                .join(', ');
+
+                            const item = document.createElement('div');
+                            item.className = 'suggestion-item';
+                            item.textContent = label || props.name || 'Selected Location';
+
+                            item.addEventListener('click', () => {
+                                const lat = feat.geometry.coordinates.at(1);
+                                const lng = feat.geometry.coordinates.at(0);
+                                const pt = L.latLng(lat, lng);
+
+                                input.value = item.textContent;
+                                list.style.display = 'none';
+
+                                if (isStart) {
+                                    if (startMarker) map.removeLayer(startMarker);
+                                    startPoint = pt;
+                                    startMarker = L.marker(pt).addTo(map).bindPopup('Start: ' + item.textContent).openPopup();
+                                } else {
+                                    if (endMarker) map.removeLayer(endMarker);
+                                    endPoint = pt;
+                                    endMarker = L.marker(pt).addTo(map).bindPopup('Destination: ' + item.textContent).openPopup();
+                                }
+
+                                map.setView(pt, 13);
+                                if (startPoint && endPoint) computeRoute();
+                            });
+
+                            list.appendChild(item);
+                        });
+
+                        list.style.display = 'block';
+                    } catch (e) {
+                        console.error('Autocomplete error:', e);
+                    }
+                }, 300);
+            });
+
+            // Hide dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!input.contains(e.target) && !list.contains(e.target)) {
+                    list.style.display = 'none';
+                }
+            });
+        }
+
+        setupAutocomplete('fromInput', 'fromSuggestions', true);
+        setupAutocomplete('toInput', 'toSuggestions', false);
+
+
+        document.getElementById('liveModeBtn').addEventListener('click', (e) => {
+            isLiveMode = true;
+            e.target.style.cssText = 'background:#16a34a;color:white;border-color:#16a34a';
+            document.getElementById('simModeBtn').style.cssText = '';
+            syncLiveWeather();
+        });
+
+        document.getElementById('simModeBtn').addEventListener('click', (e) => {
+            isLiveMode = false;
+            e.target.style.cssText = 'background:#d97706;color:white;border-color:#d97706';
+            document.getElementById('liveModeBtn').style.cssText = '';
+            load2023Simulation();
+        });
+
+        document.querySelectorAll('.mode-btn[data-mode]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.mode-btn[data-mode]').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentMode = btn.dataset.mode;
+                if (startPoint && endPoint) computeRoute();
+            });
+        });
+
+        function runDemo(s, e, sName) {
+            resetRoute();
+            startPoint = s;
+            endPoint = e;
+            startMarker = L.marker(startPoint).addTo(map).bindPopup("Start: " + sName);
+            endMarker = L.marker(endPoint).addTo(map).bindPopup("Calculating detour...").openPopup();
+            computeRoute();
+        }
+
+        document.getElementById('longDemoBtn').addEventListener('click', () =>
+            runDemo(L.latLng(12.9249, 80.1000), L.latLng(13.0850, 80.2101), "Tambaram")
+        );
+        document.getElementById('southDemoBtn').addEventListener('click', () =>
+            runDemo(L.latLng(12.9010, 80.2279), L.latLng(13.0067, 80.2206), "Sholinganallur")
+        );
+
+        const legend = L.control({ position: 'bottomleft' });
+        legend.onAdd = function () {
+            const div = L.DomUtil.create('div', 'panel');
+            div.innerHTML =
+                "<b>Legend (Chennai Flood Zones)</b><br>" +
+                "<span style='color:#dc2626'>●</span> Severe (≥50 cm)<br>" +
+                "<span style='color:#f59e0b'>●</span> Waterlogged (15–49 cm)<br>" +
+                "<span style='color:#10b981'>●</span> Clear (&lt;15 cm)<br>" +
+                "<hr style='margin:4px 0;border:none;border-top:1px solid #e2e8f0'>" +
+                "<span style='color:#dc2626'><b>╌╌</b></span> Flooded Direct Route<br>" +
+                "<span style='color:#f97316'><b>━━</b></span> Partial Safe (Some Unavoidable)<br>" +
+                "<span style='color:#16a34a'><b>━━</b></span> Complete Safe Route";
+            "<div style='margin-top:6px;font-size:10px;color:#64748b;'>⚠️ <i>Student prototype: provides route guidance, not a safety guarantee.</i></div>"
+            return div;
+        };
+        legend.addTo(map);
+        let activeRoutePath = new Array();
+        let navMarker = null;
+        let simTimer = null;
+        let gpsWatchId = null;
+
+        function stopNavigation() {
+            if (simTimer) { clearInterval(simTimer); simTimer = null; }
+            if (gpsWatchId !== null) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+            if (navMarker) { map.removeLayer(navMarker); navMarker = null; }
+            const simBtn = document.getElementById('simNavBtn');
+            const gpsBtn = document.getElementById('liveGpsBtn');
+            if (simBtn) simBtn.textContent = '▶️ Simulate Drive';
+            if (gpsBtn) gpsBtn.textContent = '📡 Live GPS';
+        }
+
+        function updateNavMarker(latlng, labelText) {
+            const icon = L.divIcon({ className: 'live-nav-dot', iconSize: L.point(22, 22), iconAnchor: L.point(11, 11) });
+            if (!navMarker) {
+                navMarker = L.marker(latlng, { icon: icon, zIndexOffset: 1000 }).addTo(map);
+            } else {
+                navMarker.setLatLng(latlng);
+            }
+            navMarker.bindPopup(labelText);
+            map.panTo(latlng, { animate: true, duration: 0.4 });
+        }
+
+        // 1. Simulate moving along the active route (great for demos & testing)
+        document.getElementById('simNavBtn').addEventListener('click', () => {
+            if (simTimer) {
+                stopNavigation();
+                return;
+            }
+            if (!activeRoutePath || activeRoutePath.length === 0) {
+                alert('Please select or calculate a route first!');
+                return;
+            }
+
+            stopNavigation();
+            const simBtn = document.getElementById('simNavBtn');
+            simBtn.textContent = '⏹ Stop Simulation';
+
+            let stepIdx = 0;
+            // Move smoothly along the route coordinates every 250ms
+            simTimer = setInterval(() => {
+                if (stepIdx >= activeRoutePath.length) {
+                    updateNavMarker(activeRoutePath.at(activeRoutePath.length - 1), '🏁 Arrived at Safe Destination!');
+                    navMarker.openPopup();
+                    clearInterval(simTimer);
+                    simTimer = null;
+                    simBtn.textContent = '▶️ Simulate Drive';
+                    return;
+                }
+
+                const pt = activeRoutePath.at(stepIdx);
+                const pct = Math.round((stepIdx / activeRoutePath.length) * 100);
+                updateNavMarker(pt, `🧭 Navigating Safe Route (${pct}%)`);
+                stepIdx += 1;
+            }, 250);
+        });
+
+        // 2. Real-time device GPS tracking (updates continuously as you move in the real world)
+        document.getElementById('liveGpsBtn').addEventListener('click', () => {
+            if (gpsWatchId !== null) {
+                stopNavigation();
+                return;
+            }
+            if (!navigator.geolocation) {
+                alert('Geolocation is not supported by your browser.');
+                return;
+            }
+
+            stopNavigation();
+            const gpsBtn = document.getElementById('liveGpsBtn');
+            gpsBtn.textContent = '⏹ Stop GPS';
+
+            gpsWatchId = navigator.geolocation.watchPosition(
+                pos => {
+                    const currentLatLng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+                    updateNavMarker(currentLatLng, '📡 Live GPS Position');
+
+                    // If user is navigating an active route, dynamically update Start & re-route if needed
+                    if (endPoint) {
+                        startPoint = currentLatLng;
+                        if (startMarker) startMarker.setLatLng(currentLatLng);
+                    }
+                },
+                err => {
+                    alert('GPS unavailable: ' + err.message);
+                    stopNavigation();
+                },
+                { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+            );
+        });
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            stopNavigation(); resetRoute();
+            document.getElementById('fromInput').value = '';
+            document.getElementById('toInput').value = '';
+        });
+
+
+        syncLiveWeather();
+
+    </script>
 </body>
+
 </html>
