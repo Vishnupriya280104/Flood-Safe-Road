@@ -334,7 +334,10 @@
                     : '';
 
                 const confirmBtnHtml = (isCommunity && p.dbId)
-                    ? `<button class="action-btn" style="margin-top:6px;background:#0284c7;" onclick="confirmFloodReport(${p.dbId}, ${p.confirmations})">👍 Confirm This Flood (${p.confirmations})</button>`
+                    ? `<div style="display:flex;gap:4px;margin-top:6px;">
+                        <button class="action-btn" style="margin-top:0;background:#0284c7;flex:1;" onclick="confirmFloodReport(${p.dbId}, ${p.confirmations})">👍 Confirm (${p.confirmations})</button>
+                        <button class="action-btn" style="margin-top:0;background:#64748b;flex:1;" onclick="reportFalseFlood(${p.dbId}, ${p.confirmations})">❌ False / Clear</button>
+                        </div>`
                     : '';
 
                 L.circleMarker(latlng, {
@@ -501,6 +504,28 @@
                 alert('Failed to save report to Supabase: ' + err.message);
             }
         };
+        window.reportFalseFlood = async function (dbId, currentCount) {
+            try {
+                const newCount = (currentCount || 1) - 1;
+                if (newCount <= 0) {
+                    // Remove false/cleared report completely from Supabase
+                    const { error } = await sb.from('reports').delete().eq('id', dbId);
+                    if (error) throw error;
+                } else {
+                    // Lower confirmation count if another user still confirmed it
+                    const { error } = await sb
+                        .from('reports')
+                        .update({ confirmations: newCount })
+                        .eq('id', dbId);
+                    if (error) throw error;
+                }
+                map.closePopup();
+                await loadCommunityReports();
+            } catch (err) {
+                alert('Could not update report: ' + err.message);
+            }
+        };
+
 
 
         // Auto-expire old community reports every minute so receding water never blocks roads
