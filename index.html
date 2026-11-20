@@ -384,7 +384,7 @@
                 const lngs = BASE_HOTSPOTS.map(f => f.geometry.coordinates.at(0)).join(',');
 
                 const apiUrl = new URL('https://open-meteo.com');
-                apiUrl.hostname = '://open-meteo.com';
+                apiUrl.hostname = 'api.open-meteo.com';
                 apiUrl.pathname = '/v1/forecast';
                 apiUrl.searchParams.set('latitude', lats);
                 apiUrl.searchParams.set('longitude', lngs);
