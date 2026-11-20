@@ -1,7 +1,3 @@
-<div align="center">
-
-# 🌊 Safe Roads in Floods (`Flood_safe_road`)
-### Community-Powered, Real-Time Hydrological & Vehicle-Aware Safe Routing
 
 <div align="center">
 
@@ -13,9 +9,6 @@
 [![License: MIT](https://shields.io)](LICENSE)
 [![TYSIC](https://shields.io)](#)
 
-*Helping residents, two-wheeler riders, delivery workers, and emergency responders navigate flooded cities safely—without paid APIs or proprietary infrastructure.*
-
-
 
 *Helping residents, two-wheeler riders, delivery workers, and emergency responders navigate flooded cities safely—without paid APIs or proprietary infrastructure.*
 
@@ -23,7 +16,7 @@
 
 ---
 
-## 🎯 The Problem & Motivation
+##  The Problem & Motivation
 
 During urban floods—such as **Chennai’s Cyclone Michaung in December 2023**—residents must decide within minutes whether a street is safe to walk, ride, or drive through. 
 
@@ -33,39 +26,39 @@ During urban floods—such as **Chennai’s Cyclone Michaung in December 2023**�
 
 ---
 
-## ✨ Core Features
+##  Core Features
 
-### 1. 🚗 Vehicle-Aware Wading Depth Routing
+### 1.  Vehicle-Aware Wading Depth Routing
 Roads are dynamically evaluated against the selected vehicle's safe ground-clearance threshold before computing detours:
 
 | Mode | Max Safe Depth | Routing Behaviour |
 | :--- | :---: | :--- |
-| **🚶 Walk** | `≤ 12 cm` | Avoids ankle-deep stagnation and submerged pedestrian paths |
-| **🛵 Bike / 2-Wheeler** | `≤ 18 cm` | Protects riders from exhaust flooding and hidden potholes |
-| **🚗 Car** | `≤ 32 cm` | Routes around knee-deep waterlogging while allowing shallow runoff |
-| **🚙 Rescue SUV** | `≤ 65 cm` | High-clearance emergency routing for relief and rescue operations |
+| ** Walk** | `≤ 12 cm` | Avoids ankle-deep stagnation and submerged pedestrian paths |
+| ** Bike / 2-Wheeler** | `≤ 18 cm` | Protects riders from exhaust flooding and hidden potholes |
+| ** Car** | `≤ 32 cm` | Routes around knee-deep waterlogging while allowing shallow runoff |
+| ** Rescue SUV** | `≤ 65 cm` | High-clearance emergency routing for relief and rescue operations |
 
-### 2. 🚦 3-Tier Visual Route Safety Classification
-* 🟢 **Green Solid Line (`Complete Safe Route`):** 100% flood-free path verified against all active hazard zones.
-* 🟠 **Orange Solid Line (`Partial Risk Detour`):** Best available path when an origin or destination lies inside an unavoidable flood zone, with explicit hazard warnings.
-* 🔴 **Red Dashed Line (`Flooded Direct Route`):** Baseline shortest path displayed for distance and risk comparison.
+### 2.  3-Tier Visual Route Safety Classification
+*  **Green Solid Line (`Complete Safe Route`):** 100% flood-free path verified against all active hazard zones.
+*  **Orange Solid Line (`Partial Risk Detour`):** Best available path when an origin or destination lies inside an unavoidable flood zone, with explicit hazard warnings.
+*  **Red Dashed Line (`Flooded Direct Route`):** Baseline shortest path displayed for distance and risk comparison.
 
-### 3. 🌦️ Dual-Mode Intelligence: Live Weather + Dec 2023 Case Study
-* **🟢 Live Weather Mode:** Fetches real-time 3-hour precipitation across 20 historical Chennai flood hotspots via the **Open-Meteo API** and computes live water depth using local drainage vulnerability weights.
-* **🟠 Dec 2023 Cyclone Simulation:** Replays verified December 2023 inundation data (`data/flood-2023.geojson`) across Velachery, Pallikaranai, Mudichur, Saidapet, T. Nagar, and 15 other neighbourhoods.
+### 3.  Dual-Mode Intelligence: Live Weather + Dec 2023 Case Study
+* ** Live Weather Mode:** Fetches real-time 3-hour precipitation across 20 historical Chennai flood hotspots via the **Open-Meteo API** and computes live water depth using local drainage vulnerability weights.
+* ** Dec 2023 Cyclone Simulation:** Replays verified December 2023 inundation data (`data/flood-2023.geojson`) across Velachery, Pallikaranai, Mudichur, Saidapet, T. Nagar, and 15 other neighbourhoods.
 
-### 4. 📢 Community Reporting & Trust Layer
+### 4.  Community Reporting & Trust Layer
 * **4-Level Depth Picker:** Right-click anywhere on the map to report flooding using intuitive visual benchmarks (**Ankle**, **Knee**, **Half Wheel**, **Above Wheel**).
 * **DEM Elevation Cross-Check:** Automatically queries **Open-Meteo's Elevation API** (meters above sea level) to flag low-lying terrain plausibility.
 * **Auto-Expiry:** Community reports automatically expire after 6 hours so receding floodwater never permanently blocks a road.
 
-### 5. 🚨 Emergency Hospital Finder & Live GPS Navigation
+### 5.  Emergency Hospital Finder & Live GPS Navigation
 * **Nearest Safe Hospital:** Scans real OpenStreetMap medical facilities within 3 km via **Photon**, filters out hospitals inside flooded zones, and routes to the closest dry facility.
 * **Live GPS & Simulated Drive:** Tracks real-time device movement (`navigator.geolocation.watchPosition`) or animates a turn-by-turn drive preview along the safe detour.
 
 ---
 
-## 🏗️ System Architecture
+##  System Architecture
 
 ```mermaid
 flowchart TD
@@ -80,7 +73,7 @@ flowchart TD
 
 ---
 
-## 🛠️ 100% Open-Source & Zero-Cost Tech Stack
+##  100% Open-Source & Zero-Cost Tech Stack
 
 | Layer | Technology / Open Data | Purpose |
 | :--- | :--- | :--- |
@@ -92,7 +85,7 @@ flowchart TD
 
 ---
 
-## 🚀 Run Locally in 10 Seconds
+##  Run Locally in 10 Seconds
 
 No Node.js installation, backend server, or API keys are required:
 
@@ -108,7 +101,7 @@ cd Flood_safe_road
 
 ---
 
-## ⚠️ Honest Limitations & Safety Disclaimer
+##  Honest Limitations & Safety Disclaimer
 
 * **Guidance, Not a Guarantee:** This student-built prototype provides decision-support guidance based on open weather models, elevation data, and community inputs—it is not an official government disaster warning system.
 * **Threshold Calibration:** Vehicle wading depths (`12 cm` to `65 cm`) represent baseline engineering assumptions and should be calibrated with local transport and disaster-response authorities.
@@ -116,15 +109,15 @@ cd Flood_safe_road
 
 ---
 
-## 👩‍💻 Author
+##  Author
 
 **Vishnupriya V**  
 M.tech in Robotics and Artificial Intelligence (2028) - M.S. Ramaiah Institute of Technology (RIT), Bengaluru  
 *Concept proposal submitted to the **Tata Young Social Innovator Challenge (TYSIC)** • Sector: Disaster Resilience*  
-🔗 GitHub: [@Vishnupriya280104](https://github.com)
+ GitHub: [@Vishnupriya280104](https://github.com)
 
 ---
 
-## 📄 License
+##  License
 
 Distributed under the **MIT License**. Free for any city, college, or community group to fork and adapt for local flood resilience.
