@@ -414,7 +414,8 @@
                     }, 0);
 
                     const vulnerability = clone.properties.base_depth_cm / 50;
-                    const estimatedDepth = Math.round(effectiveRetainedRain * 1.6 * vulnerability);
+                    const MIN_RAIN_12H_MM = 15;   // ignore light rain: needs ~moderate rain to flag flooding
+                    const estimatedDepth = totalRain12h < MIN_RAIN_12H_MM ? 0 : Math.round(effectiveRetainedRain * 1.6 * vulnerability);
 
                     clone.properties.rain_mm = totalRain12h;
                     clone.properties.depth_cm = estimatedDepth;
@@ -422,7 +423,7 @@
                     clone.properties.note = totalRain12h > 0
                         ? `12h rainfall: ${totalRain12h.toFixed(1)} mm (retained runoff modeled)`
                         : 'No significant rainfall in last 12 hrs';
-                    clone.properties.source = 'Open-Meteo 12h Hydrological Model';
+                    clone.properties.source = 'Open-Meteo 12h rainfall estimate';
                     return clone;
                 });
 
@@ -431,7 +432,7 @@
 
                 const activeCount = floodFeatures.filter(f => f.properties.severity !== 'clear').length;
                 if (statusEl) {
-                    statusEl.innerHTML = `🟢 <b>LIVE MODE (12h):</b> ${activeCount} active waterlogged zones right now.`;
+                    statusEl.innerHTML = `🟢 <b>LIVE MODE (last 12h rainfall estimate):</b> ${activeCount} zones flagged`;
                 }
                 if (startPoint && endPoint) computeRoute();
             } catch (e) {
@@ -780,6 +781,7 @@
             return div;
         };
         searchPanel.addTo(map);
+
         // One-click "Use My Current Location" button in Plan Route box
         document.getElementById('useMyLocBtn').addEventListener('click', () => {
             const btn = document.getElementById('useMyLocBtn');
@@ -848,6 +850,33 @@
             return div;
         };
         panel.addTo(map);
+        // Collapsible panels so the map is usable on small phone screens
+        function makeCollapsible(control, titleText) {
+            const el = control.getContainer();
+            const originalWidth = el.style.width;
+            const body = document.createElement('div');
+            while (el.firstChild) body.appendChild(el.firstChild);   // move existing content into body
+
+            const bar = document.createElement('div');
+            bar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;font-weight:700;font-size:13px;color:#0f172a;';
+            bar.innerHTML = '<span>' + titleText + '</span><span class="tg">▾</span>';
+            el.appendChild(bar);
+            el.appendChild(body);
+
+            const tg = bar.querySelector('.tg');
+            function setOpen(open) {
+                body.style.display = open ? 'block' : 'none';
+                body.style.marginTop = open ? '8px' : '0';
+                tg.textContent = open ? '▾' : '▸';
+                el.style.width = open ? originalWidth : 'auto';
+            }
+            bar.addEventListener('click', function () {
+                setOpen(body.style.display === 'none');
+            });
+            setOpen(window.innerWidth > 600);   // closed on phones, open on desktop
+        }
+        makeCollapsible(panel, 'Controls');
+        makeCollapsible(searchPanel, 'Plan Route');
         // Render Valhalla turn-by-turn maneuvers inside the panel drawer
         function renderDirections(maneuvers, titleText) {
             const drawer = document.getElementById('directionsDrawer');
